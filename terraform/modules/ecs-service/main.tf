@@ -20,6 +20,7 @@ locals {
 }
 
 resource "aws_ecs_task_definition" "this" {
+  enable_fault_injection   = false
   family                   = var.name
   network_mode             = "awsvpc"
   requires_compatibilities = ["FARGATE"]
