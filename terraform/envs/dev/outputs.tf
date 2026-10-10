@@ -85,3 +85,10 @@ output "shared_workload_runtime_security_group_id" {
   description = "For future VPC-aware app execution; not automatically attached to ECS Express."
   value       = var.enable_shared_workload_pool ? module.workload_pool[0].runtime_security_group_id : null
 }
+
+output "allocation_worker" {
+  value = var.enable_allocation_worker ? {
+    service_name  = module.allocation_worker[0].service_name
+    task_role_arn = module.allocation_worker[0].task_role_arn
+  } : null
+}

@@ -363,3 +363,26 @@ module "published_outputs" {
     "aws/app_builder_role_arn" = module.github_oidc.role_arns["app-builder"]
   })
 }
+
+# Separately pinned image: platform's API/build image-only CD does not update this service.
+module "allocation_worker" {
+  count                   = var.enable_allocation_worker ? 1 : 0
+  source                  = "../../modules/allocation-worker"
+  name_prefix             = local.name_prefix
+  cluster_arn             = module.cluster.cluster_arn
+  cluster_name            = local.cluster_name
+  image                   = "${module.ecr.repository_url}:${var.allocation_worker_image_tag}"
+  platform_repository_arn = module.ecr.repository_arn
+  subnet_ids              = module.network.app_subnet_ids
+  security_group_id       = module.network.worker_security_group_id
+  queue_url               = module.shared_database_queue[0].queue_url
+  queue_arn               = module.shared_database_queue[0].queue_arn
+  registration            = module.workload_pool[0].registration
+  environment             = local.common_environment
+  state_secret_arn        = module.state_db.master_secret_arn
+  identity_secrets = {
+    SKY_ALB_TRUSTS_JSON  = module.secrets.secret_arns["alb-trusts"]
+    SKY_MEMBERSHIPS_JSON = module.secrets.secret_arns["memberships"]
+  }
+  depends_on = [module.cluster]
+}

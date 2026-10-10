@@ -282,3 +282,20 @@ variable "shared_workload_multi_az" {
   type    = bool
   default = false
 }
+
+variable "enable_allocation_worker" {
+  type    = bool
+  default = false
+  validation {
+    condition = !var.enable_allocation_worker || (
+      var.enable_shared_workload_pool && var.enable_shared_database_queue &&
+      can(regex("^[a-f0-9]{40}$", var.allocation_worker_image_tag))
+    )
+    error_message = "Allocation worker requires pool, dedicated queue, and an explicitly published full commit SHA image."
+  }
+}
+variable "allocation_worker_image_tag" {
+  description = "Published full SHA image with shared allocation consumer. Updated through normal infra apply, independently of API/build image CD."
+  type        = string
+  default     = ""
+}

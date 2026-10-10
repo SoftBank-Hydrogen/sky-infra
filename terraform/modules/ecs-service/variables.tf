@@ -136,3 +136,8 @@ variable "depends_on_ids" {
   type        = list(string)
   default     = []
 }
+
+variable "enable_execute_command" {
+  type    = bool
+  default = true
+}

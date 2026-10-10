@@ -126,3 +126,28 @@ run "shared_workload_pool_enabled" {
     error_message = "App workloads must never be allocated in the Sky state RDS."
   }
 }
+
+run "allocation_worker_requires_published_image" {
+  command = plan
+  variables {
+    enable_shared_database_queue = true
+    enable_shared_workload_pool  = true
+    enable_allocation_worker     = true
+    allocation_worker_image_tag  = ""
+  }
+  expect_failures = [var.enable_allocation_worker]
+}
+
+run "allocation_worker_enabled" {
+  command = plan
+  variables {
+    enable_shared_database_queue = true
+    enable_shared_workload_pool  = true
+    enable_allocation_worker     = true
+    allocation_worker_image_tag  = "1111111111111111111111111111111111111111"
+  }
+  assert {
+    condition     = length(module.allocation_worker) == 1 && module.allocation_worker[0].service_name == "sky-dev-allocation"
+    error_message = "Allocation must use a separate service instead of changing the existing build worker."
+  }
+}

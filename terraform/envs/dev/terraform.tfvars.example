@@ -40,3 +40,7 @@ enable_shared_database_queue = false
 enable_shared_workload_pool = false
 shared_workload_instance_class = "db.t4g.small"
 shared_workload_multi_az = false
+
+# Starts only the allocation worker. Enable after SQL registration and publishing a compatible image.
+enable_allocation_worker = false
+allocation_worker_image_tag = ""
