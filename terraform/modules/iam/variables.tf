@@ -3,14 +3,14 @@ variable "name_prefix" {
 }
 
 variable "services" {
-  description = "서비스 키(api, worker) → 실행 역할이 주입할 비밀 ARN 목록"
+  description = "서비스 키(api, worker, outbox) → 실행 역할이 주입할 비밀 ARN 목록"
   type = map(object({
     secret_arns = list(string)
   }))
 
   validation {
-    condition     = toset(keys(var.services)) == toset(["api", "worker"])
-    error_message = "services 키는 api, worker 두 개여야 한다."
+    condition     = toset(keys(var.services)) == toset(["api", "worker", "outbox"])
+    error_message = "services 키는 api, worker, outbox 세 개여야 한다."
   }
 }
 

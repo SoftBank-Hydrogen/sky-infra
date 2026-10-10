@@ -10,6 +10,8 @@ TASK_DEFINITION = "module.api.aws_ecs_task_definition.this"
 SERVICE = "module.api.aws_ecs_service.this"
 WORKER_TASK_DEFINITION = "module.worker.aws_ecs_task_definition.this"
 WORKER_SERVICE = "module.worker.aws_ecs_service.this"
+OUTBOX_TASK_DEFINITION = "module.outbox.aws_ecs_task_definition.this"
+OUTBOX_SERVICE = "module.outbox.aws_ecs_service.this"
 
 REPO = "123456789012.dkr.ecr.ap-northeast-2.amazonaws.com/sky-platform"
 OLD = REPO + ":aaaaaaa"
@@ -171,6 +173,30 @@ class CheckPlanTest(unittest.TestCase):
         ), NEW)
         self.assertEqual(errors, [])
         self.assertEqual(len(changed), 4)
+
+    def test_api_worker_and_outbox_together_pass(self):
+        errors, changed = check_plan(plan(
+            task_definition_change(), service_change(),
+            task_definition_change(address=WORKER_TASK_DEFINITION),
+            service_change(address=WORKER_SERVICE),
+            task_definition_change(address=OUTBOX_TASK_DEFINITION),
+            service_change(address=OUTBOX_SERVICE),
+        ), NEW)
+        self.assertEqual(errors, [])
+        self.assertEqual(len(changed), 6)
+
+    def test_outbox_wrong_image_fails(self):
+        errors, _ = check_plan(plan(
+            task_definition_change(), service_change(),
+            task_definition_change(address=OUTBOX_TASK_DEFINITION, after_image=REPO + ":ccccccc"),
+            service_change(address=OUTBOX_SERVICE),
+        ), NEW)
+        self.assertTrue(any(OUTBOX_TASK_DEFINITION in e and "기대값과 다르다" in e for e in errors))
+
+    def test_outbox_command_change_fails(self):
+        tdc = task_definition_change(address=OUTBOX_TASK_DEFINITION, after_extra={"command": ["worker"]})
+        errors, _ = check_plan(plan(tdc, service_change(address=OUTBOX_SERVICE)), NEW)
+        self.assertTrue(any(OUTBOX_TASK_DEFINITION in e and "이미지 외 값" in e for e in errors))
 
     def test_worker_wrong_image_fails(self):
         errors, _ = check_plan(plan(

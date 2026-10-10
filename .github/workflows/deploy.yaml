@@ -1,7 +1,7 @@
 name: deploy
 
 # 서비스 서버 이미지 배포. terraform/envs/dev/platform-image.auto.tfvars만 바꾼 변경을
-# API·워커의 태스크 정의와 ECS 서비스에만 -target으로 적용한다. 나머지 인프라는 terraform.yaml(승인 후 apply)로 한다.
+# API·워커·outbox의 태스크 정의와 ECS 서비스에만 -target으로 적용한다. 나머지 인프라는 terraform.yaml(승인 후 apply)로 한다.
 on:
   pull_request:
     paths: [terraform/envs/dev/platform-image.auto.tfvars]
@@ -22,9 +22,11 @@ env:
     -target=module.api.aws_ecs_service.this
     -target=module.worker.aws_ecs_task_definition.this
     -target=module.worker.aws_ecs_service.this
+    -target=module.outbox.aws_ecs_task_definition.this
+    -target=module.outbox.aws_ecs_service.this
   ECR_REPOSITORY: sky-platform
   ECS_CLUSTER: sky-dev
-  ECS_SERVICES: sky-dev-api sky-dev-worker
+  ECS_SERVICES: sky-dev-api sky-dev-worker sky-dev-outbox
   CONTAINER_NAME: sky-platform
 
 jobs:
@@ -144,7 +146,7 @@ jobs:
               '```',
               mask(read(`${dir}/check.txt`)),
               '```',
-              '<details><summary>plan (-target: API·워커 태스크 정의, ECS 서비스)</summary>',
+              '<details><summary>plan (-target: API·워커·outbox 태스크 정의, ECS 서비스)</summary>',
               '',
               '```',
               limit(mask(read(`${dir}/plan.txt`)), 55000),
