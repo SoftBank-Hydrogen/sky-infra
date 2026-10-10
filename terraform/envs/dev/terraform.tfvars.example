@@ -26,6 +26,7 @@ infra_apply_policy_arns = [
 # state_db_multi_az       = true
 
 # builder_repository = "sky-builder"
+# github_builder_repository_id = "123456789" # 저장소 생성 후 실제 GitHub repository id 확인; 비워 두면 builder 역할 생략
 # builder_workflow   = "build.yaml"
 # github_app_id      = ""
 

@@ -18,6 +18,35 @@ variable "github_org" {
   default = "SoftBank-Hydrogen"
 }
 
+# 이 조직은 GitHub Actions OIDC sub에 이름 대신 변경 불가능한 조직·저장소 ID를 넣는다.
+# 저장소를 새로 만들면 GitHub REST API의 repository id와 OIDC subject template을 확인해 갱신한다.
+variable "github_org_id" {
+  type    = string
+  default = "338183202"
+  validation {
+    condition     = can(regex("^[0-9]+$", var.github_org_id))
+    error_message = "github_org_id는 GitHub 조직의 숫자 ID여야 한다."
+  }
+}
+
+variable "github_infra_repository_id" {
+  type    = string
+  default = "1412003322"
+  validation {
+    condition     = can(regex("^[0-9]+$", var.github_infra_repository_id))
+    error_message = "github_infra_repository_id는 GitHub 저장소의 숫자 ID여야 한다."
+  }
+}
+
+variable "github_platform_repository_id" {
+  type    = string
+  default = "1407769237"
+  validation {
+    condition     = can(regex("^[0-9]+$", var.github_platform_repository_id))
+    error_message = "github_platform_repository_id는 GitHub 저장소의 숫자 ID여야 한다."
+  }
+}
+
 variable "create_github_oidc_provider" {
   description = "계정에 GitHub OIDC 공급자가 이미 있으면 false"
   type        = bool
@@ -155,6 +184,16 @@ variable "builder_repository" {
   description = "사용자 앱 빌드 워크플로가 있는 저장소 이름 (github_org 아래)"
   type        = string
   default     = "sky-builder"
+}
+
+variable "github_builder_repository_id" {
+  description = "sky-builder의 GitHub 저장소 숫자 ID. 저장소 생성 전에는 빈 값으로 두어 OIDC 역할을 만들지 않는다."
+  type        = string
+  default     = ""
+  validation {
+    condition     = var.github_builder_repository_id == "" || can(regex("^[0-9]+$", var.github_builder_repository_id))
+    error_message = "github_builder_repository_id는 빈 값 또는 GitHub 저장소의 숫자 ID여야 한다."
+  }
 }
 
 variable "builder_workflow" {
