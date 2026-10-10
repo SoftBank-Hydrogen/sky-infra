@@ -1,0 +1,16 @@
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+crash.*.log
+backend.hcl
+terraform.tfvars
+*.auto.tfvars
+.terraformrc
+terraform.rc
+.DS_Store
+
+# Python (plan audit tests)
+__pycache__/
+*.py[cod]
