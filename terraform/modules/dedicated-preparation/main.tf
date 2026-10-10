@@ -1,4 +1,4 @@
-# Opt-in preparation resources only. Not instantiated by envs/dev, no live apply.
+# Opt-in preparation resources; no live apply is performed by this module.
 terraform {
   required_providers {
     aws = { source = "hashicorp/aws", version = "~> 6.0" }
@@ -19,7 +19,7 @@ module "queue" {
 }
 resource "aws_iam_role" "task" {
   name                 = "${var.name_prefix}-dedicated-preparation-task"
-  permissions_boundary = var.permissions_boundary_arn
+  permissions_boundary = var.create_permissions_boundary ? aws_iam_policy.boundary[0].arn : var.permissions_boundary_arn
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{ Effect = "Allow", Action = "sts:AssumeRole", Principal = { Service = "ecs-tasks.amazonaws.com" },
@@ -28,7 +28,7 @@ resource "aws_iam_role" "task" {
   })
   lifecycle {
     precondition {
-      condition     = startswith(var.permissions_boundary_arn, "arn:aws:iam::${local.account}:policy/") && startswith(var.state_secret_arn, "arn:aws:secretsmanager:${local.region}:${local.account}:secret:")
+      condition     = (var.create_permissions_boundary ? var.permissions_boundary_arn == null : try(startswith(var.permissions_boundary_arn, "arn:aws:iam::${local.account}:policy/"), false)) && startswith(var.state_secret_arn, "arn:aws:secretsmanager:${local.region}:${local.account}:secret:")
       error_message = "State secret and task permission boundary must match caller account/region."
     }
   }
@@ -36,7 +36,7 @@ resource "aws_iam_role" "task" {
 locals {
   task_policy = {
     Version = "2012-10-17"
-    Statement = [
+    Statement = concat([
       { Sid = "ConsumeDedicatedQueue", Effect = "Allow", Action = ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:ChangeMessageVisibility", "sqs:GetQueueAttributes"], Resource = [module.queue.queue_arn] },
       { Sid = "StateCredentials", Effect = "Allow", Action = ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"], Resource = [var.state_secret_arn] },
       { Sid = "ReadOnlyInventory", Effect = "Allow", Action = ["rds:DescribeDBInstances", "rds:DescribeDBSubnetGroups", "rds:DescribeDBParameters", "ec2:DescribeSecurityGroups"], Resource = "*", Condition = { StringEquals = { "aws:RequestedRegion" = local.region } } },
@@ -58,11 +58,19 @@ locals {
         Condition = { StringEquals = { "secretsmanager:ResourceTag/aws:rds:primaryDBInstanceArn" = local.targets } }
       },
       { Sid = "DescribeManagedEncryptionKeys", Effect = "Allow", Action = ["kms:DescribeKey"], Resource = "arn:aws:kms:${local.region}:${local.account}:key/*" }
-    ]
+      ], var.cluster_name == "" ? [] : [{
+        Sid      = "ProtectPreparationTask", Effect = "Allow", Action = ["ecs:UpdateTaskProtection", "ecs:GetTaskProtection"],
+        Resource = ["arn:aws:ecs:${local.region}:${local.account}:task/${var.cluster_name}/*"]
+    }])
   }
 }
 resource "aws_iam_role_policy" "task" {
   name   = "dedicated-preparation"
   role   = aws_iam_role.task.id
+  policy = jsonencode(local.task_policy)
+}
+resource "aws_iam_policy" "boundary" {
+  count  = var.create_permissions_boundary ? 1 : 0
+  name   = "${var.name_prefix}-dedicated-preparation-boundary"
   policy = jsonencode(local.task_policy)
 }

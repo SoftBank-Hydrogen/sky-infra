@@ -91,12 +91,12 @@ variable "enable_auth" {
 # ---------------------------------------------------------------------------
 
 variable "platform_image_tag" {
-  description = "서비스 서버 이미지 태그(sky-platform 커밋의 7자리 git SHA). platform-image.auto.tfvars에서만 바꾼다"
+  description = "서비스 서버 이미지 태그(sky-platform 커밋의 7자리 또는 전체 git SHA). platform-image.auto.tfvars에서만 바꾼다"
   type        = string
 
   validation {
-    condition     = can(regex("^[0-9a-f]{7}$", var.platform_image_tag))
-    error_message = "platform_image_tag는 7자리 소문자 git SHA여야 한다."
+    condition     = can(regex("^([0-9a-f]{7}|[0-9a-f]{40})$", var.platform_image_tag))
+    error_message = "platform_image_tag는 7자리 또는 전체 40자리 소문자 git SHA여야 한다."
   }
 }
 

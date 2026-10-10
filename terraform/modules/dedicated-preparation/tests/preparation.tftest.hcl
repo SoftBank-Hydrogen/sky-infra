@@ -1,4 +1,5 @@
 mock_provider "aws" {
+  mock_resource "aws_iam_policy" { defaults = { arn = "arn:aws:iam::123456789012:policy/sky-test-dedicated-preparation-boundary" } }
   mock_data "aws_caller_identity" { defaults = { account_id = "123456789012" } }
   mock_data "aws_region" { defaults = { region = "ap-northeast-2" } }
 }
@@ -40,4 +41,21 @@ run "reject_foreign_boundary" {
     permissions_boundary_arn = "arn:aws:iam::999999999999:policy/foreign"
   }
   expect_failures = [aws_iam_role.task]
+}
+
+run "managed_boundary_and_scoped_task_protection" {
+  command = apply
+  variables {
+    create_permissions_boundary = true
+    permissions_boundary_arn    = null
+    cluster_name                = "sky-test"
+  }
+  assert {
+    condition     = length(aws_iam_policy.boundary) == 1 && aws_iam_policy.boundary[0].policy == jsonencode(local.task_policy)
+    error_message = "Managed boundary must cap the role at the same exact preparation scope."
+  }
+  assert {
+    condition     = local.task_policy.Statement[10].Resource == ["arn:aws:ecs:ap-northeast-2:123456789012:task/sky-test/*"] && local.task_policy.Statement[10].Action == ["ecs:UpdateTaskProtection", "ecs:GetTaskProtection"]
+    error_message = "Worker can protect only tasks in its registered cluster."
+  }
 }

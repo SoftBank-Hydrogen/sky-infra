@@ -151,3 +151,67 @@ run "allocation_worker_enabled" {
     error_message = "Allocation must use a separate service instead of changing the existing build worker."
   }
 }
+
+run "dedicated_preparation_default_disabled" {
+  command = plan
+  assert {
+    condition     = length(module.dedicated_preparation) == 0 && length(module.dedicated_worker) == 0 && length(aws_security_group.dedicated_database) == 0
+    error_message = "Dedicated resources and workers must remain opt-in."
+  }
+}
+run "dedicated_preparation_requires_registered_pool" {
+  command = plan
+  variables {
+    enable_dedicated_preparation  = true
+    dedicated_target_instance_ids = ["sky-validation-dedicated"]
+  }
+  expect_failures = [var.enable_dedicated_preparation]
+}
+run "dedicated_worker_requires_immutable_matching_image" {
+  command = plan
+  variables {
+    enable_shared_database_queue  = true
+    enable_shared_workload_pool   = true
+    enable_dedicated_preparation  = true
+    dedicated_target_instance_ids = ["sky-validation-dedicated"]
+    enable_dedicated_worker       = true
+    dedicated_worker_image_tag    = "1111111111111111111111111111111111111111"
+    dedicated_policies_json       = "{\"schema_version\":1,\"policies\":[]}"
+  }
+  expect_failures = [var.enable_dedicated_worker]
+}
+
+run "dedicated_resources_prepared_worker_paused" {
+  command = plan
+  variables {
+    enable_shared_database_queue  = true
+    enable_shared_workload_pool   = true
+    enable_dedicated_preparation  = true
+    dedicated_target_instance_ids = ["sky-validation-dedicated"]
+  }
+  assert {
+    condition     = length(module.dedicated_preparation) == 1 && length(module.dedicated_worker) == 0 && length(aws_iam_role_policy.dedicated_publisher) == 0
+    error_message = "Resource preparation must not activate a worker or change outbox permissions."
+  }
+  assert {
+    condition     = aws_db_parameter_group.dedicated[0].family == "postgres17" && length(aws_vpc_security_group_ingress_rule.dedicated_database) == 2
+    error_message = "Dedicated targets require TLS PostgreSQL configuration and scoped worker/runtime network access."
+  }
+}
+run "dedicated_worker_registered" {
+  command = plan
+  variables {
+    enable_shared_database_queue  = true
+    enable_shared_workload_pool   = true
+    enable_dedicated_preparation  = true
+    dedicated_target_instance_ids = ["sky-validation-dedicated"]
+    enable_dedicated_worker       = true
+    dedicated_worker_image_tag    = "1111111111111111111111111111111111111111"
+    platform_image_tag            = "1111111111111111111111111111111111111111"
+    dedicated_policies_json       = "{\"schema_version\":1,\"policies\":[]}"
+  }
+  assert {
+    condition     = module.dedicated_worker[0].service_name == "sky-dev-dedicated-preparation" && length(aws_iam_role_policy.dedicated_publisher) == 1
+    error_message = "Enabled worker must have a separate service and narrowly scoped publisher."
+  }
+}

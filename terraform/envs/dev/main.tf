@@ -324,6 +324,8 @@ module "outbox" {
 
   environment = merge(local.common_environment, var.enable_shared_database_queue ? {
     SKY_SHARED_DATABASE_QUEUE_URL = module.shared_database_queue[0].queue_url
+    } : {}, var.enable_dedicated_worker ? {
+    SKY_DEDICATED_DATABASE_QUEUE_URL = module.dedicated_preparation[0].queue_url
   } : {})
   log_group_name    = module.observability.log_group_names["outbox"]
   log_stream_prefix = "outbox"
