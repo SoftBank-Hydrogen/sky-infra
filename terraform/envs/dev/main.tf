@@ -124,6 +124,13 @@ module "queue" {
   name_prefix = local.name_prefix
 }
 
+# Shared allocations use a separate FIFO queue: build consumers never receive DB commands.
+module "shared_database_queue" {
+  count       = var.enable_shared_database_queue ? 1 : 0
+  source      = "../../modules/queue"
+  name_prefix = "${local.name_prefix}-shared-database"
+}
+
 # ---------------------------------------------------------------------------
 # 이미지·비밀·권한
 # ---------------------------------------------------------------------------
@@ -145,17 +152,18 @@ module "iam" {
     worker = { secret_arns = values(local.service_secrets.worker) }
     outbox = { secret_arns = [] } # 앱 비밀 없음. DB 비밀은 태스크 역할(API)로 직접 읽는다
   }
-  log_group_names         = module.observability.log_group_names
-  exec_log_group_name     = module.observability.exec_log_group_name
-  platform_repository_arn = module.ecr.repository_arn
-  platform_secret_arns    = values(module.secrets.secret_arns)
-  state_db_secret_arn     = module.state_db.master_secret_arn
-  artifacts_bucket_arn    = module.artifacts.bucket_arn
-  queue_arn               = module.queue.queue_arn
-  cluster_name            = local.cluster_name
-  service_names           = local.service_names
-  state_bucket_name       = local.state_bucket_name
-  state_key               = local.state_key
+  log_group_names            = module.observability.log_group_names
+  exec_log_group_name        = module.observability.exec_log_group_name
+  platform_repository_arn    = module.ecr.repository_arn
+  platform_secret_arns       = values(module.secrets.secret_arns)
+  state_db_secret_arn        = module.state_db.master_secret_arn
+  artifacts_bucket_arn       = module.artifacts.bucket_arn
+  queue_arn                  = module.queue.queue_arn
+  shared_database_queue_arns = [for queue in module.shared_database_queue : queue.queue_arn]
+  cluster_name               = local.cluster_name
+  service_names              = local.service_names
+  state_bucket_name          = local.state_bucket_name
+  state_key                  = local.state_key
 }
 
 module "github_oidc" {
@@ -302,7 +310,9 @@ module "outbox" {
   min_count          = 1
   max_count          = 1
 
-  environment       = local.common_environment
+  environment = merge(local.common_environment, var.enable_shared_database_queue ? {
+    SKY_SHARED_DATABASE_QUEUE_URL = module.shared_database_queue[0].queue_url
+  } : {})
   log_group_name    = module.observability.log_group_names["outbox"]
   log_stream_prefix = "outbox"
   depends_on_ids    = [module.cluster.capacity_providers_ready]

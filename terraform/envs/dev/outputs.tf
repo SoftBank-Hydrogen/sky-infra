@@ -66,3 +66,13 @@ output "platform_release_role_arn" {
 output "alarm_topic_arn" {
   value = module.observability.alarm_topic_arn
 }
+
+output "shared_database_queue" {
+  description = "Opt-in allocation transport only; null when disabled. Shared workload RDS and allocation ECS service are not created."
+  value = var.enable_shared_database_queue ? {
+    url     = module.shared_database_queue[0].queue_url
+    arn     = module.shared_database_queue[0].queue_arn
+    dlq_arn = module.shared_database_queue[0].dlq_arn
+    name    = module.shared_database_queue[0].queue_name
+  } : null
+}

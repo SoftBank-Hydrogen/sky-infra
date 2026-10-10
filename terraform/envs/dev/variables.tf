@@ -258,3 +258,9 @@ variable "builder_platform_code_sha" {
     error_message = "builder_platform_code_sha는 빈 값 또는 40자리 소문자 SHA여야 한다."
   }
 }
+
+variable "enable_shared_database_queue" {
+  description = "Create the dedicated shared workload DB allocation queue; does not create RDS or start an allocation worker."
+  type        = bool
+  default     = false
+}
