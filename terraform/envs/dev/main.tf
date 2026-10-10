@@ -268,9 +268,14 @@ module "worker" {
   }
 
   environment = merge(local.common_environment, {
-    SKY_AWS_ROLE_BOUNDARY_ARN = module.iam.deployed_app_boundary_arn
-    SKY_BUILDER_REPOSITORY    = "${local.org}/${var.builder_repository}"
-    SKY_BUILDER_WORKFLOW      = var.builder_workflow
+    SKY_AWS_ROLE_BOUNDARY_ARN  = module.iam.deployed_app_boundary_arn
+    SKY_BUILDER_REPOSITORY     = "${local.org}/${var.builder_repository}"
+    SKY_BUILDER_WORKFLOW       = var.builder_workflow
+    SKY_BUILDER_REF            = var.builder_ref
+    SKY_BUILDER_SHA            = var.builder_code_sha
+    SKY_BUILDER_PLATFORM_SHA   = var.builder_platform_code_sha
+    SKY_GITHUB_APP_ID          = var.github_builder_app_id
+    SKY_GITHUB_INSTALLATION_ID = var.github_builder_installation_id
   })
   secrets           = local.service_secrets.worker
   log_group_name    = module.observability.log_group_names["worker"]

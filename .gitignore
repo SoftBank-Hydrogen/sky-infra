@@ -16,3 +16,5 @@ terraform.rc
 # Python (plan audit tests)
 __pycache__/
 *.py[cod]
+# 비밀 없는 builder ID/code pin 설정만 추적한다.
+!terraform/envs/dev/builder.auto.tfvars
