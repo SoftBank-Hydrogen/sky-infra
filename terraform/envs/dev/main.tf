@@ -38,6 +38,7 @@ locals {
   service_names = {
     api    = "${local.name_prefix}-api"
     worker = "${local.name_prefix}-worker"
+    outbox = "${local.name_prefix}-outbox"
   }
   image = "${module.ecr.repository_url}:${var.platform_image_tag}"
 
@@ -142,6 +143,7 @@ module "iam" {
   services = {
     api    = { secret_arns = values(local.service_secrets.api) }
     worker = { secret_arns = values(local.service_secrets.worker) }
+    outbox = { secret_arns = [] } # 앱 비밀 없음. DB 비밀은 태스크 역할(API)로 직접 읽는다
   }
   log_group_names         = module.observability.log_group_names
   exec_log_group_name     = module.observability.exec_log_group_name
@@ -260,7 +262,7 @@ module "worker" {
   subnet_ids            = module.network.app_subnet_ids
   security_group_id     = module.network.worker_security_group_id
   min_count             = 0
-  max_count             = var.worker_max_count
+  max_count             = 0 # 꺼 둔다 (큐 오토스케일링 없음). 빌드 consumer(worker --mode build) 단계에서 var.worker_max_count로 다시 켠다
 
   queue_scaling = {
     queue_name   = module.queue.queue_name
@@ -280,6 +282,29 @@ module "worker" {
   secrets           = local.service_secrets.worker
   log_group_name    = module.observability.log_group_names["worker"]
   log_stream_prefix = "worker"
+  depends_on_ids    = [module.cluster.capacity_providers_ready]
+}
+
+# outbox publisher: DB outbox에 접수된 작업을 SQS FIFO로 보낸다. 항상 1개, 오토스케일링·ALB 없음.
+# 태스크 역할은 API 것(DB 비밀 읽기, 큐 SendMessage)을 쓰고, 실행 역할은 비밀 없는 전용 역할을 쓴다.
+module "outbox" {
+  source             = "../../modules/ecs-service"
+  name               = local.service_names.outbox
+  cluster_arn        = module.cluster.cluster_arn
+  image              = local.image
+  command            = ["worker", "--mode", "outbox"]
+  cpu                = 256
+  memory             = 512
+  execution_role_arn = module.iam.execution_role_arns["outbox"]
+  task_role_arn      = module.iam.api_task_role_arn
+  subnet_ids         = module.network.app_subnet_ids
+  security_group_id  = module.network.worker_security_group_id # 들어오는 규칙 없음, RDS 5432 허용
+  min_count          = 1
+  max_count          = 1
+
+  environment       = local.common_environment
+  log_group_name    = module.observability.log_group_names["outbox"]
+  log_stream_prefix = "outbox"
   depends_on_ids    = [module.cluster.capacity_providers_ready]
 }
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """서비스 서버 이미지 배포 plan이 이미지 변경만 담고 있는지 검사한다.
 
-`terraform show -json <planfile>` 결과를 읽어 다음을 확인한다. API와 워커 각각에 대해:
+`terraform show -json <planfile>` 결과를 읽어 다음을 확인한다. API·워커·outbox 각각에 대해:
 - 바뀌는 자원은 태스크 정의와 ECS 서비스뿐이다 (-target이 끌어온 의존 자원 변경은 거부)
 - 태스크 정의는 교체만 허용하고, 컨테이너 이미지 외의 값은 그대로다
 - 새 이미지는 기대한 <ECR URL>:<SHA>다
@@ -15,7 +15,7 @@ import argparse
 import json
 import sys
 
-SERVICES = ("api", "worker")
+SERVICES = ("api", "worker", "outbox")
 TASK_DEFINITIONS = {f"module.{name}.aws_ecs_task_definition.this" for name in SERVICES}
 ECS_SERVICES = {f"module.{name}.aws_ecs_service.this" for name in SERVICES}
 CONTAINER_NAME = "sky-platform"

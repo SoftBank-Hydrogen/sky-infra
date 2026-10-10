@@ -72,7 +72,7 @@ data "aws_iam_policy_document" "app_builder" {
   }
 }
 
-# sky-infra main → platform-image.auto.tfvars가 바뀌면 API·워커의 태스크 정의와 ECS 서비스만 -target으로 적용한다.
+# sky-infra main → platform-image.auto.tfvars가 바뀌면 API·워커·outbox의 태스크 정의와 ECS 서비스만 -target으로 적용한다.
 data "aws_iam_policy_document" "platform_release" {
   statement {
     sid = "StateList"
