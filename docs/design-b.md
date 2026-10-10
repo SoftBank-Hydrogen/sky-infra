@@ -285,7 +285,7 @@ B안 인프라는 아래를 전제로 한다. 지금 sky-platform(`5f37216`)에�
 
 | # | 내용 |
 |---|---|
-| W1 | `sky-service worker`로 실행한다. 이미지 `ENTRYPOINT`가 `sky-service`이고 태스크 정의 `command`는 그 뒤 인자이므로 `worker_command = ["worker"]`다. 큐를 롱 폴링(20초)하고, 한 태스크가 한 번에 작업 하나만 처리한다. |
+| W1 | `sky-service worker --mode outbox`로 실행한다. 이미지 `ENTRYPOINT`가 `sky-service`이고 태스크 정의 `command`는 그 뒤 인자이므로 `worker_command = ["worker", "--mode", "outbox"]`다(API는 `api_command = ["api"]`). 명령을 주지 않으면 A안 경로로 `/.sky` 상태 디렉터리를 요구하다 exit 2로 종료한다. 큐를 롱 폴링(20초)하고, 한 태스크가 한 번에 작업 하나만 처리한다. |
 | W2 | 처리하는 동안 1~2분마다 `ChangeMessageVisibility`로 가시성 시간을 늘린다. 시작할 때 태스크 보호를 켜고 끝나면 끈다. 성공하면 메시지를 지운다. |
 | W3 | 메시지 내용을 그대로 믿지 않는다. 상태 DB의 시도 기록과 대조한 뒤 실행한다. API가 장악됐을 때 임의 작업이 실행되는 것을 막기 위해서다. |
 | W4 | SIGTERM을 받으면(120초 안에) 진행 중인 단계를 체크포인트로 남기고 메시지는 지우지 않는다. 그러면 다른 워커가 이어서 처리한다. |

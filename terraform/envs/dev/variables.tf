@@ -101,15 +101,15 @@ variable "platform_image_tag" {
 }
 
 variable "api_command" {
-  description = "API 컨테이너 명령. null이면 이미지 기본값(웹 서버)"
+  description = "API 컨테이너 명령. 이미지 ENTRYPOINT(sky-service) 뒤에 붙는 인자다"
   type        = list(string)
-  default     = null
+  default     = ["api"]
 }
 
 variable "worker_command" {
   description = "워커 컨테이너 명령. 이미지 ENTRYPOINT(sky-service) 뒤에 붙는 인자다"
   type        = list(string)
-  default     = ["worker"]
+  default     = ["worker", "--mode", "outbox"]
 }
 
 variable "api_cpu" {
