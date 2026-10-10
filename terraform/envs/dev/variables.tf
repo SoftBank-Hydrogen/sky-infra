@@ -264,3 +264,21 @@ variable "enable_shared_database_queue" {
   type        = bool
   default     = false
 }
+
+variable "enable_shared_workload_pool" {
+  description = "Create a separate shared app RDS, KMS key and security groups. SQL registration and allocation worker are separate steps."
+  type        = bool
+  default     = false
+  validation {
+    condition     = !var.enable_shared_workload_pool || var.enable_shared_database_queue
+    error_message = "Shared workload pool requires the dedicated allocation queue to be enabled."
+  }
+}
+variable "shared_workload_instance_class" {
+  type    = string
+  default = "db.t4g.small"
+}
+variable "shared_workload_multi_az" {
+  type    = bool
+  default = false
+}

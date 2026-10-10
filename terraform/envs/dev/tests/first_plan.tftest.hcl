@@ -105,3 +105,24 @@ run "shared_database_queue_enabled" {
     error_message = "Runtime registration output must identify the dedicated queue."
   }
 }
+
+run "shared_workload_pool_requires_queue" {
+  command = plan
+  variables {
+    enable_shared_workload_pool  = true
+    enable_shared_database_queue = false
+  }
+  expect_failures = [var.enable_shared_workload_pool]
+}
+
+run "shared_workload_pool_enabled" {
+  command = plan
+  variables {
+    enable_shared_database_queue = true
+    enable_shared_workload_pool  = true
+  }
+  assert {
+    condition     = length(module.workload_pool) == 1 && module.workload_pool[0].identifier != module.state_db.identifier
+    error_message = "App workloads must never be allocated in the Sky state RDS."
+  }
+}

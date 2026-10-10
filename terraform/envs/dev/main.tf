@@ -131,6 +131,18 @@ module "shared_database_queue" {
   name_prefix = "${local.name_prefix}-shared-database"
 }
 
+# Dedicated workload DB; never use the Sky state database as an app pool.
+module "workload_pool" {
+  count                       = var.enable_shared_workload_pool ? 1 : 0
+  source                      = "../../modules/workload-pool"
+  name_prefix                 = local.name_prefix
+  vpc_id                      = module.network.vpc_id
+  data_subnet_ids             = module.network.data_subnet_ids
+  allocator_security_group_id = module.network.worker_security_group_id
+  instance_class              = var.shared_workload_instance_class
+  multi_az                    = var.shared_workload_multi_az
+}
+
 # ---------------------------------------------------------------------------
 # 이미지·비밀·권한
 # ---------------------------------------------------------------------------

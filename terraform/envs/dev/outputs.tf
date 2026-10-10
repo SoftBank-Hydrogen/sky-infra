@@ -76,3 +76,12 @@ output "shared_database_queue" {
     name    = module.shared_database_queue[0].queue_name
   } : null
 }
+
+output "shared_workload_pool_registration" {
+  description = "Save as pool JSON for the explicit allocator. Contains ARN references only; RDS readiness and SQL registration must be verified separately."
+  value       = var.enable_shared_workload_pool ? module.workload_pool[0].registration : null
+}
+output "shared_workload_runtime_security_group_id" {
+  description = "For future VPC-aware app execution; not automatically attached to ECS Express."
+  value       = var.enable_shared_workload_pool ? module.workload_pool[0].runtime_security_group_id : null
+}
