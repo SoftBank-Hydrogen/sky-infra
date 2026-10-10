@@ -29,7 +29,7 @@ variable "roles" {
         for s in cfg.subjects : startswith(s, "repo:") && !contains(["repo:*", "repo:*/*"], s)
       ])
     ])
-    error_message = "subjects는 repo:<org>/<repo>:... 형식이어야 하고, 모든 저장소를 허용하는 와일드카드는 쓸 수 없다."
+    error_message = "subjects는 repo:<org>/<repo>:... 또는 repo:<org>@<id>/<repo>@<id>:... 형식이어야 하고, 모든 저장소를 허용하는 와일드카드는 쓸 수 없다."
   }
 }
 

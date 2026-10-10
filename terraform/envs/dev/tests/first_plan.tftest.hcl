@@ -54,4 +54,26 @@ run "first_plan" {
     condition     = module.api.service_name == "sky-dev-api" && module.worker.service_name == "sky-dev-worker"
     error_message = "서비스 이름이 deploy.yaml·검사 스크립트와 맞아야 한다."
   }
+
+  assert {
+    condition     = local.infra_oidc_subject_prefix == "repo:SoftBank-Hydrogen@338183202/sky-infra@1412003322" && local.platform_oidc_subject_prefix == "repo:SoftBank-Hydrogen@338183202/sky-platform@1407769237"
+    error_message = "GitHub의 불변 OIDC sub 접두어가 실제 조직·저장소 ID와 맞아야 한다."
+  }
+
+  assert {
+    condition     = !contains(keys(module.github_oidc.role_arns), "app-builder")
+    error_message = "저장소 ID가 확인되지 않은 builder 역할은 만들면 안 된다."
+  }
+}
+
+run "builder_repository_registered" {
+  command = plan
+  variables {
+    github_builder_repository_id = "987654321"
+  }
+
+  assert {
+    condition     = local.builder_oidc_subject_prefix == "repo:SoftBank-Hydrogen@338183202/sky-builder@987654321" && contains(keys(module.github_oidc.role_arns), "app-builder")
+    error_message = "builder 저장소 ID가 설정되면 해당 불변 주체의 역할을 만들어야 한다."
+  }
 }

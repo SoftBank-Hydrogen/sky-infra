@@ -30,6 +30,10 @@ locals {
   name_prefix = "sky-${local.environment}"
   app_port    = 8080
 
+  infra_oidc_subject_prefix    = "repo:${local.org}@${var.github_org_id}/sky-infra@${var.github_infra_repository_id}"
+  platform_oidc_subject_prefix = "repo:${local.org}@${var.github_org_id}/sky-platform@${var.github_platform_repository_id}"
+  builder_oidc_subject_prefix  = "repo:${local.org}@${var.github_org_id}/${var.builder_repository}@${var.github_builder_repository_id}"
+
   cluster_name = local.name_prefix
   service_names = {
     api    = "${local.name_prefix}-api"
@@ -155,17 +159,17 @@ module "github_oidc" {
   name_prefix     = local.name_prefix
   create_provider = var.create_github_oidc_provider
 
-  roles = {
+  roles = merge({
     # PR에서 plan만 한다. 읽기 전용.
     infra-plan = {
       description         = "sky-infra PR plan (read-only)"
-      subjects            = ["repo:${local.org}/sky-infra:pull_request"]
+      subjects            = ["${local.infra_oidc_subject_prefix}:pull_request"]
       managed_policy_arns = ["arn:aws:iam::aws:policy/ReadOnlyAccess"]
     }
     # main 반영 후 GitHub environment 승인을 거친 작업만 apply한다.
     infra-apply = {
       description         = "sky-infra apply (environment-gated)"
-      subjects            = ["repo:${local.org}/sky-infra:environment:${local.environment}"]
+      subjects            = ["${local.infra_oidc_subject_prefix}:environment:${local.environment}"]
       managed_policy_arns = var.infra_apply_policy_arns
     }
     # sky-platform ci.yml의 publish-service job이 서비스 서버 이미지를 ECR에 push만 한다.
@@ -173,27 +177,29 @@ module "github_oidc" {
     # sky-platform 저장소의 dev environment는 배포 브랜치를 main으로 제한해야 한다 (다른 브랜치가 이 역할을 받지 못하게).
     platform-deploy = {
       description = "sky-platform image push to ECR (dev environment)"
-      subjects    = ["repo:${local.org}/sky-platform:environment:${local.environment}"]
+      subjects    = ["${local.platform_oidc_subject_prefix}:environment:${local.environment}"]
     }
     # sky-infra main에서 platform-image.auto.tfvars가 바뀌면 API·워커 태스크 정의와 서비스만 적용한다.
     # job에 environment를 걸면 sub가 environment:로 바뀌어 assume되지 않는다.
     platform-release = {
       description = "sky-infra main: apply platform image (task definitions and ECS services only)"
-      subjects    = ["repo:${local.org}/sky-infra:ref:refs/heads/main"]
+      subjects    = ["${local.infra_oidc_subject_prefix}:ref:refs/heads/main"]
     }
-    # 워커가 workflow_dispatch로 실행하는 사용자 앱 빌드. main 브랜치 워크플로만 assume한다.
+    }, var.github_builder_repository_id == "" ? {} : {
+    # 저장소가 생성되고 불변 ID가 확인된 뒤에만 빌더 역할을 만든다.
     app-builder = {
       description = "sky-builder main: build deployed app images and push to ECR sky-managed"
-      subjects    = ["repo:${local.org}/${var.builder_repository}:ref:refs/heads/main"]
+      subjects    = ["${local.builder_oidc_subject_prefix}:ref:refs/heads/main"]
     }
-  }
+  })
 
   # 키는 정적인 역할 이름. 값(정책 JSON)은 apply 전에 unknown이어도 된다.
-  inline_policies = {
+  inline_policies = merge({
     platform-deploy  = module.iam.platform_deploy_policy_json
     platform-release = module.iam.platform_release_policy_json
-    app-builder      = module.iam.app_builder_policy_json
-  }
+    }, var.github_builder_repository_id == "" ? {} : {
+    app-builder = module.iam.app_builder_policy_json
+  })
 }
 
 # ---------------------------------------------------------------------------
@@ -288,7 +294,7 @@ module "published_outputs" {
   source           = "../../modules/published-outputs"
   environment      = local.environment
   contract_version = 2
-  values = {
+  values = merge({
     "aws/region"     = var.region
     "aws/account_id" = data.aws_caller_identity.current.account_id
 
@@ -297,8 +303,9 @@ module "published_outputs" {
     "aws/platform_deploy_role_arn"    = module.github_oidc.role_arns["platform-deploy"]
 
     # sky-builder 워크플로가 사용자 앱 이미지를 빌드할 때 쓴다.
-    "aws/app_builder_role_arn"       = module.github_oidc.role_arns["app-builder"]
     "aws/managed_ecr_repository_url" = "${data.aws_caller_identity.current.account_id}.dkr.ecr.${var.region}.amazonaws.com/sky-managed"
     "aws/artifacts_bucket"           = module.artifacts.bucket_name
-  }
+    }, var.github_builder_repository_id == "" ? {} : {
+    "aws/app_builder_role_arn" = module.github_oidc.role_arns["app-builder"]
+  })
 }

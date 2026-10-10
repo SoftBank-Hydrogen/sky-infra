@@ -40,10 +40,10 @@ data "aws_iam_policy_document" "trust" {
       variable = "${local.issuer_host}:aud"
       values   = ["sts.amazonaws.com"]
     }
-    # 예: repo:SoftBank-Hydrogen/sky-infra:ref:refs/heads/main
-    #     repo:SoftBank-Hydrogen/sky-infra:environment:dev
+    # 조직의 immutable subject template 예:
+    # repo:SoftBank-Hydrogen@338183202/sky-infra@1412003322:ref:refs/heads/main
     condition {
-      test     = "StringLike"
+      test     = "StringEquals"
       variable = "${local.issuer_host}:sub"
       values   = each.value.subjects
     }
