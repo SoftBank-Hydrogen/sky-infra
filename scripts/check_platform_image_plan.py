@@ -26,7 +26,7 @@ TASK_DEFINITION_COMPUTED = {"arn", "arn_without_revision", "revision", "id"}
 
 
 def _empty(value):
-    return value is None or value is False or value == [] or value == {}
+    return value is None or value is False or value == "" or value == [] or value == {}
 
 
 def normalize(value):
@@ -46,6 +46,28 @@ def normalize(value):
     return value
 
 
+def _same(before, after):
+    """normalize한 뒤 비교한다. 빈 값(None, "", [], {}, False)끼리는 같다고 본다."""
+    before, after = normalize(before), normalize(after)
+    if _empty(before) and _empty(after):
+        return True
+    return before == after
+
+
+def _without_default_host_port(container):
+    """awsvpc에서 AWS가 채워 넣는 hostPort(= containerPort)를 뺀다. 다른 값이면 남긴다."""
+    mappings = container.get("portMappings")
+    if not isinstance(mappings, list):
+        return container
+    stripped = []
+    for mapping in mappings:
+        if isinstance(mapping, dict) and "hostPort" in mapping \
+                and mapping["hostPort"] == mapping.get("containerPort"):
+            mapping = {k: v for k, v in mapping.items() if k != "hostPort"}
+        stripped.append(mapping)
+    return {**container, "portMappings": stripped}
+
+
 def _containers(raw):
     if raw is None:
         return None
@@ -60,7 +82,7 @@ def changed_keys(change):
     keys = set(before) | set(after)
     return sorted(
         key for key in keys
-        if unknown.get(key) is not True and normalize(before.get(key)) != normalize(after.get(key))
+        if unknown.get(key) is not True and not _same(before.get(key), after.get(key))
     )
 
 
@@ -81,7 +103,10 @@ def check_task_definition(address, change, expected_image):
         return errors + [f"{address}: container_definitions를 비교할 수 없다"]
 
     def without_image(containers):
-        return normalize([{k: v for k, v in c.items() if k != "image"} for c in containers])
+        return normalize([
+            _without_default_host_port({k: v for k, v in c.items() if k != "image"})
+            for c in containers
+        ])
 
     if without_image(before) != without_image(after):
         errors.append(f"{address}: 컨테이너 정의에서 이미지 외 값이 바뀐다")
