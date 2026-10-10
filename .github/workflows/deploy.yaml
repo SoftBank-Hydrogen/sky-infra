@@ -1,1 +1,282 @@
-# deploy.yaml
+name: deploy
+
+# 서비스 서버 이미지 배포. terraform/envs/dev/platform-image.auto.tfvars만 바꾼 변경을
+# API·워커의 태스크 정의와 ECS 서비스에만 -target으로 적용한다. 나머지 인프라는 terraform.yaml(승인 후 apply)로 한다.
+on:
+  pull_request:
+    paths: [terraform/envs/dev/platform-image.auto.tfvars]
+  push:
+    branches: [main]
+    paths: [terraform/envs/dev/platform-image.auto.tfvars]
+
+permissions:
+  contents: read
+
+env:
+  TF_IN_AUTOMATION: "1"
+  TF_VERSION: "1.15.8"
+  TF_DIR: terraform/envs/dev
+  IMAGE_FILE: terraform/envs/dev/platform-image.auto.tfvars
+  TF_TARGETS: >-
+    -target=module.api.aws_ecs_task_definition.this
+    -target=module.api.aws_ecs_service.this
+    -target=module.worker.aws_ecs_task_definition.this
+    -target=module.worker.aws_ecs_service.this
+  ECR_REPOSITORY: sky-platform
+  ECS_CLUSTER: sky-dev
+  ECS_SERVICES: sky-dev-api sky-dev-worker
+  CONTAINER_NAME: sky-platform
+
+jobs:
+  plan:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Only the image file changed
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          changed="$(git diff --name-only "$BASE_SHA...$HEAD_SHA")"
+          echo "$changed"
+          if [[ "$changed" != "$IMAGE_FILE" ]]; then
+            echo "이미지 배포 PR은 $IMAGE_FILE 하나만 바꿔야 한다. 다른 변경은 별도 PR로 올리고 terraform 워크플로로 apply한다." >&2
+            exit 1
+          fi
+
+      - name: Read image tag
+        id: tag
+        run: |
+          tag="$(sed -n 's/^platform_image_tag *= *"\([0-9a-f]\{7\}\)"[[:space:]]*$/\1/p' "$IMAGE_FILE")"
+          [[ "$tag" =~ ^[0-9a-f]{7}$ ]] || { echo "$IMAGE_FILE에서 7자리 SHA를 읽지 못했다." >&2; exit 1; }
+          echo "value=$tag" >> "$GITHUB_OUTPUT"
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false # show -json 출력을 그대로 파일로 받기 위해
+
+      - name: Check role variable
+        run: |
+          [[ -n "${{ vars.AWS_PLAN_ROLE_ARN }}" ]] || { echo '저장소 변수 AWS_PLAN_ROLE_ARN이 없다.' >&2; exit 1; }
+
+      # PR plan은 읽기 전용 역할(infra-plan, sub=pull_request)을 쓴다.
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_PLAN_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Verify shared AWS account
+        env:
+          EXPECTED_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+        run: |
+          [[ "$EXPECTED_ACCOUNT_ID" =~ ^[0-9]{12}$ ]] || { echo 'Set the shared AWS_ACCOUNT_ID repository variable.' >&2; exit 1; }
+          actual_account_id="$(aws sts get-caller-identity --query Account --output text)"
+          [[ "$actual_account_id" == "$EXPECTED_ACCOUNT_ID" ]] || { echo 'The assumed role belongs to a different AWS account.' >&2; exit 1; }
+
+      - name: Image exists in ECR
+        run: |
+          aws ecr describe-images --repository-name "$ECR_REPOSITORY" \
+            --image-ids imageTag="${{ steps.tag.outputs.value }}" --query 'imageDetails[0].imageDigest' --output text \
+            || { echo "ECR $ECR_REPOSITORY에 ${{ steps.tag.outputs.value }} 태그 이미지가 없다. 먼저 push한다." >&2; exit 1; }
+
+      - name: Unit test plan checker
+        run: python3 -m unittest discover -s scripts
+
+      - name: Targeted plan
+        id: plan
+        working-directory: ${{ env.TF_DIR }}
+        env:
+          TF_VAR_infra_apply_policy_arns: ${{ vars.INFRA_APPLY_POLICY_ARNS || '[]' }}
+          TF_VAR_aws_account_id: ${{ vars.AWS_ACCOUNT_ID }}
+        run: |
+          printf 'bucket="%s"\nkey="envs/dev/terraform.tfstate"\nregion="%s"\nencrypt=true\nuse_lockfile=true\n' \
+            "${{ vars.TF_STATE_BUCKET }}" "${{ vars.AWS_REGION }}" > backend.hcl
+          terraform init -input=false -backend-config=backend.hcl
+          # plan 역할은 읽기 전용이라 state 잠금 파일을 쓰지 않는다.
+          terraform plan -input=false -lock=false $TF_TARGETS -out=image.tfplan
+          terraform show -no-color image.tfplan > plan.txt
+          terraform show -json image.tfplan > plan.json
+
+      - name: Check plan scope
+        id: check
+        env:
+          EXPECTED_IMAGE: ${{ vars.AWS_ACCOUNT_ID }}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY }}:${{ steps.tag.outputs.value }}
+        run: |
+          set +e
+          python3 scripts/check_platform_image_plan.py "$TF_DIR/plan.json" --expected-image "$EXPECTED_IMAGE" > "$TF_DIR/check.txt"
+          code=$?
+          cat "$TF_DIR/check.txt"
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+
+      - name: Comment on PR
+        if: always() && steps.plan.outcome != 'skipped'
+        uses: actions/github-script@v7
+        env:
+          ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+          TAG: ${{ steps.tag.outputs.value }}
+          PLAN_OUTCOME: ${{ steps.plan.outcome }}
+          CHECK_CODE: ${{ steps.check.outputs.code }}
+        with:
+          script: |
+            const fs = require('fs');
+            const dir = process.env.TF_DIR;
+            const read = (p) => (fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : '(없음)');
+            const mask = (s) => (process.env.ACCOUNT_ID ? s.split(process.env.ACCOUNT_ID).join('************') : s);
+            const limit = (s, n) => (s.length > n ? s.slice(0, n) + '\n... (잘림, 전체는 Actions 로그 참고)' : s);
+            const marker = '<!-- platform-image-plan -->';
+            let status = 'plan 실패';
+            if (process.env.PLAN_OUTCOME === 'success') {
+              status = process.env.CHECK_CODE === '0' ? '검사 통과 (머지하면 자동 배포)' : '검사 실패 (이미지 외 변경 포함)';
+            }
+            const body = [
+              marker,
+              `### 서비스 서버 이미지 \`${process.env.TAG}\`: ${status}`,
+              '',
+              '```',
+              mask(read(`${dir}/check.txt`)),
+              '```',
+              '<details><summary>plan (-target: API·워커 태스크 정의, ECS 서비스)</summary>',
+              '',
+              '```',
+              limit(mask(read(`${dir}/plan.txt`)), 55000),
+              '```',
+              '</details>',
+            ].join('\n');
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number });
+            const prev = comments.find((c) => c.body && c.body.includes(marker));
+            if (prev) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: prev.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }
+
+      - name: Fail on scope violation
+        if: steps.check.outputs.code != '0'
+        run: exit 1
+
+  deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    # environment를 걸지 않는다. 걸면 OIDC sub가 environment:dev로 바뀌어 main 전용 역할을 assume하지 못한다.
+    concurrency:
+      group: platform-image-dev
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Only the image file changed
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          changed="$(git diff --name-only "$BEFORE_SHA" "$GITHUB_SHA")"
+          echo "$changed"
+          if [[ "$changed" != "$IMAGE_FILE" ]]; then
+            echo "이 push는 $IMAGE_FILE 외 파일도 바꿨다. 자동 배포하지 않는다. terraform 워크플로로 apply한다." >&2
+            exit 1
+          fi
+
+      - name: Read image tag
+        id: tag
+        run: |
+          tag="$(sed -n 's/^platform_image_tag *= *"\([0-9a-f]\{7\}\)"[[:space:]]*$/\1/p' "$IMAGE_FILE")"
+          [[ "$tag" =~ ^[0-9a-f]{7}$ ]] || { echo "$IMAGE_FILE에서 7자리 SHA를 읽지 못했다." >&2; exit 1; }
+          echo "value=$tag" >> "$GITHUB_OUTPUT"
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: Check role variable
+        run: |
+          [[ -n "${{ vars.AWS_PLATFORM_RELEASE_ROLE_ARN }}" ]] || { echo '저장소 변수 AWS_PLATFORM_RELEASE_ROLE_ARN이 없다.' >&2; exit 1; }
+
+      # sky-infra main 브랜치에서만 assume되는 이미지 배포 전용 역할
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_PLATFORM_RELEASE_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Verify shared AWS account
+        env:
+          EXPECTED_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+        run: |
+          [[ "$EXPECTED_ACCOUNT_ID" =~ ^[0-9]{12}$ ]] || { echo 'Set the shared AWS_ACCOUNT_ID repository variable.' >&2; exit 1; }
+          actual_account_id="$(aws sts get-caller-identity --query Account --output text)"
+          [[ "$actual_account_id" == "$EXPECTED_ACCOUNT_ID" ]] || { echo 'The assumed role belongs to a different AWS account.' >&2; exit 1; }
+
+      - name: Image exists in ECR
+        run: |
+          aws ecr describe-images --repository-name "$ECR_REPOSITORY" \
+            --image-ids imageTag="${{ steps.tag.outputs.value }}" --query 'imageDetails[0].imageDigest' --output text \
+            || { echo "ECR $ECR_REPOSITORY에 ${{ steps.tag.outputs.value }} 태그 이미지가 없다." >&2; exit 1; }
+
+      - name: Targeted plan
+        working-directory: ${{ env.TF_DIR }}
+        env:
+          TF_VAR_infra_apply_policy_arns: ${{ vars.INFRA_APPLY_POLICY_ARNS || '[]' }}
+          TF_VAR_aws_account_id: ${{ vars.AWS_ACCOUNT_ID }}
+        run: |
+          printf 'bucket="%s"\nkey="envs/dev/terraform.tfstate"\nregion="%s"\nencrypt=true\nuse_lockfile=true\n' \
+            "${{ vars.TF_STATE_BUCKET }}" "${{ vars.AWS_REGION }}" > backend.hcl
+          terraform init -input=false -backend-config=backend.hcl
+          terraform plan -input=false -lock-timeout=5m $TF_TARGETS -out=image.tfplan
+          terraform show -json image.tfplan > plan.json
+
+      - name: Check plan scope
+        env:
+          EXPECTED_IMAGE: ${{ vars.AWS_ACCOUNT_ID }}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY }}:${{ steps.tag.outputs.value }}
+        run: python3 scripts/check_platform_image_plan.py "$TF_DIR/plan.json" --expected-image "$EXPECTED_IMAGE"
+
+      # 검사한 plan 파일 그대로 적용한다.
+      - name: Apply
+        working-directory: ${{ env.TF_DIR }}
+        run: terraform apply -input=false -lock-timeout=5m image.tfplan
+
+      # 회로 차단기가 롤백하면 PRIMARY 배포가 이전 이미지로 바뀐다. 이미지까지 확인해 실패로 남긴다.
+      # 워커는 처리 중인 태스크가 태스크 보호로 남아 있으면 그 작업이 끝날 때까지 배포가 진행 중일 수 있다.
+      - name: Wait for rollout
+        env:
+          EXPECTED_IMAGE: ${{ vars.AWS_ACCOUNT_ID }}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY }}:${{ steps.tag.outputs.value }}
+        run: |
+          pending="$ECS_SERVICES"
+          for _ in $(seq 1 160); do
+            next=""
+            for service in $pending; do
+              read -r task_def state < <(aws ecs describe-services --cluster "$ECS_CLUSTER" --services "$service" \
+                --query 'services[0].deployments[?status==`PRIMARY`]|[0].[taskDefinition,rolloutState]' --output text)
+              image="$(aws ecs describe-task-definition --task-definition "$task_def" \
+                --query "taskDefinition.containerDefinitions[?name=='$CONTAINER_NAME']|[0].image" --output text)"
+              echo "$service primary=${task_def##*/} rollout=$state"
+              if [[ "$image" != "$EXPECTED_IMAGE" ]]; then
+                echo "$service: 새 이미지가 뜨지 못해 ECS가 이전 버전으로 롤백했다 (현재 ${image##*:}). 태스크 로그를 확인한다." >&2
+                exit 1
+              fi
+              case "$state" in
+                COMPLETED) echo "$service 배포 완료: ${EXPECTED_IMAGE##*:}" ;;
+                FAILED) echo "$service 배포 실패 (rolloutState=FAILED)" >&2; exit 1 ;;
+                *) next="$next $service" ;;
+              esac
+            done
+            pending="$next"
+            [[ -z "${pending// /}" ]] && exit 0
+            sleep 15
+          done
+          echo "40분 안에 배포가 끝나지 않았다:$pending" >&2
+          exit 1

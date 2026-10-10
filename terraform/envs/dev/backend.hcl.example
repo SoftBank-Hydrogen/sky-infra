@@ -1,0 +1,6 @@
+# backend.hcl로 복사해서 쓴다. bucket은 bootstrap 출력의 state_bucket.
+bucket       = "sky-tfstate-<account_id>-ap-northeast-2"
+key          = "envs/dev/terraform.tfstate"
+region       = "ap-northeast-2"
+encrypt      = true
+use_lockfile = true
