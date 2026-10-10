@@ -63,6 +63,8 @@ locals {
   # 서비스별로 주입하는 비밀. 실행 역할은 여기 있는 비밀만 읽을 수 있다.
   service_secrets = {
     api = {
+      SKY_ALB_TRUSTS_JSON        = module.secrets.secret_arns["alb-trusts"]
+      SKY_MEMBERSHIPS_JSON       = module.secrets.secret_arns["memberships"]
       SKY_GITHUB_APP_PRIVATE_KEY = module.secrets.secret_arns["github-app-private-key"]
     }
     worker = {
