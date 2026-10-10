@@ -1,0 +1,119 @@
+name: terraform
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: apply할 환경
+        type: choice
+        options: [dev]
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  # 같은 환경에 대한 plan·apply가 겹치지 않게 한다. state 잠금과 별개의 1차 방어선이다.
+  group: terraform-${{ github.event.inputs.environment || 'dev' }}
+  cancel-in-progress: false
+
+env:
+  TF_IN_AUTOMATION: "1"
+  TF_VERSION: "1.15.8"
+
+jobs:
+  static:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+      - run: terraform fmt -check -recursive terraform
+      - name: Unit test plan checker
+        run: python3 -m unittest discover -s scripts
+      - name: validate
+        run: |
+          for dir in terraform/bootstrap terraform/envs/dev; do
+            terraform -chdir="$dir" init -backend=false -input=false
+            terraform -chdir="$dir" validate
+          done
+      # 자격 증명 없이 mock provider로 빈 계정 첫 plan을 돌린다.
+      - name: First plan with mock provider
+        run: terraform -chdir=terraform/envs/dev test
+
+  plan:
+    # 역할이 만들어지고 저장소 변수가 설정된 뒤부터 동작한다.
+    if: github.event_name == 'pull_request' && vars.AWS_PLAN_ROLE_ARN != ''
+    needs: static
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_PLAN_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - name: Verify shared AWS account
+        env:
+          EXPECTED_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+        run: |
+          [[ "$EXPECTED_ACCOUNT_ID" =~ ^[0-9]{12}$ ]] || { echo 'Set the shared AWS_ACCOUNT_ID repository variable.' >&2; exit 1; }
+          actual_account_id="$(aws sts get-caller-identity --query Account --output text)"
+          [[ "$actual_account_id" == "$EXPECTED_ACCOUNT_ID" ]] || { echo 'The assumed role belongs to a different AWS account.' >&2; exit 1; }
+      - name: plan
+        working-directory: terraform/envs/dev
+        env:
+          TF_VAR_infra_apply_policy_arns: ${{ vars.INFRA_APPLY_POLICY_ARNS || '[]' }}
+          TF_VAR_aws_account_id: ${{ vars.AWS_ACCOUNT_ID }}
+        run: |
+          printf 'bucket="%s"\nkey="envs/dev/terraform.tfstate"\nregion="%s"\nencrypt=true\nuse_lockfile=true\n' \
+            "${{ vars.TF_STATE_BUCKET }}" "${{ vars.AWS_REGION }}" > backend.hcl
+          terraform init -input=false -backend-config=backend.hcl
+          # plan 역할은 읽기 전용이라 state 잠금 파일을 쓰지 않는다.
+          terraform plan -input=false -lock=false -no-color | tee plan.txt
+
+  apply:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    needs: static
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_APPLY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - name: Verify shared AWS account
+        env:
+          EXPECTED_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+        run: |
+          [[ "$EXPECTED_ACCOUNT_ID" =~ ^[0-9]{12}$ ]] || { echo 'Set the shared AWS_ACCOUNT_ID repository variable.' >&2; exit 1; }
+          actual_account_id="$(aws sts get-caller-identity --query Account --output text)"
+          [[ "$actual_account_id" == "$EXPECTED_ACCOUNT_ID" ]] || { echo 'The assumed role belongs to a different AWS account.' >&2; exit 1; }
+      - name: apply
+        working-directory: terraform/envs/${{ github.event.inputs.environment }}
+        env:
+          TF_VAR_infra_apply_policy_arns: ${{ vars.INFRA_APPLY_POLICY_ARNS }}
+          TF_VAR_aws_account_id: ${{ vars.AWS_ACCOUNT_ID }}
+        run: |
+          env_name="${{ github.event.inputs.environment }}"
+          printf 'bucket="%s"\nkey="envs/%s/terraform.tfstate"\nregion="%s"\nencrypt=true\nuse_lockfile=true\n' \
+            "${{ vars.TF_STATE_BUCKET }}" "$env_name" "${{ vars.AWS_REGION }}" > backend.hcl
+          terraform init -input=false -backend-config=backend.hcl
+          terraform plan -input=false -out=apply.tfplan
+          terraform apply -input=false apply.tfplan

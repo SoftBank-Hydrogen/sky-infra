@@ -1,0 +1,32 @@
+# terraform.tfvars로 복사해서 쓴다. 실제 파일은 커밋하지 않는다.
+
+# 대상(팀 공유) AWS 계정 ID. provider의 allowed_account_ids로 다른 계정 실행을 막는다.
+# CI에서는 저장소 변수 AWS_ACCOUNT_ID가 TF_VAR_aws_account_id로 넘어간다.
+aws_account_id = "000000000000"
+
+# create_github_oidc_provider = false   # 계정에 이미 공급자가 있을 때
+infra_apply_policy_arns = [
+  # 0002 결정 전까지는 비워 두면 apply 역할이 아무 권한도 갖지 않는다.
+]
+
+# 아래는 기본값을 바꿀 때만 주석을 푼다.
+# CI는 이 파일을 보지 못하고 기본값으로 plan하므로, 바꾼 값은 variables.tf 기본값에 반영해야
+# 이미지 배포 plan 검사가 의존 자원 차이로 실패하지 않는다.
+
+# zone_name          = "cloudas.store"
+# service_domain     = "cloudas.store"
+# health_check_path  = "/health"
+# enable_auth        = true
+
+# api_min_count           = 2
+# api_max_count           = 4
+# worker_max_count        = 3
+# worker_idle_minutes     = 10
+# state_db_instance_class = "db.t4g.medium"
+# state_db_multi_az       = true
+
+# builder_repository = "sky-builder"
+# builder_workflow   = "build.yaml"
+# github_app_id      = ""
+
+# platform_image_tag는 여기에 두지 않는다. 커밋되는 platform-image.auto.tfvars가 유일한 출처다.

@@ -7,6 +7,8 @@ crash.*.log
 backend.hcl
 terraform.tfvars
 *.auto.tfvars
+# 서비스 서버 이미지 SHA는 커밋한다. 이 파일만 바뀐 PR이 머지되면 자동 배포된다.
+!terraform/envs/dev/platform-image.auto.tfvars
 .terraformrc
 terraform.rc
 .DS_Store
