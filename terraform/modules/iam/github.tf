@@ -178,6 +178,7 @@ data "aws_iam_policy_document" "platform_release" {
       "s3:GetLifecycleConfiguration",
       "s3:GetReplicationConfiguration",
       "s3:GetEncryptionConfiguration",
+      "s3:ListBucket",
     ]
     resources = [var.artifacts_bucket_arn]
   }
