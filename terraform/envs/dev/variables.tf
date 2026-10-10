@@ -75,9 +75,9 @@ variable "service_domain" {
 }
 
 variable "health_check_path" {
-  description = "ALB 헬스 체크 경로. sky-platform 서비스 이미지의 /health (프로세스 생존만 확인)"
+  description = "ALB 헬스 체크 경로. sky-platform API의 /ready (DB 연결·스키마 확인, 준비 전이면 503). 프로세스 생존만 보려면 /health"
   type        = string
-  default     = "/health"
+  default     = "/ready"
 }
 
 variable "enable_auth" {
