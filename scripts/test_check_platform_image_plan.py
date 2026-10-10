@@ -53,6 +53,19 @@ def task_definition_change(before_image=OLD, after_image=NEW, after_extra=None, 
     }
 
 
+def aws_stored_task_definition_change(address=TASK_DEFINITION):
+    """state가 AWS가 저장한 표현을 담은 태스크 정의 교체 (설정 값은 같다)."""
+    tdc = task_definition_change(address=address)
+    before = tdc["change"]["before"]
+    before.update({"ipc_mode": "", "pid_mode": "", "tags": {}})
+    stored = json.loads(before["container_definitions"])
+    # awsvpc에서 AWS가 hostPort = containerPort를 채워 저장한다
+    stored[0]["portMappings"] = [{"containerPort": 8080, "hostPort": 8080, "protocol": "tcp"}]
+    before["container_definitions"] = json.dumps(stored)
+    tdc["change"]["after"].update({"ipc_mode": None, "pid_mode": None, "tags": None})
+    return tdc
+
+
 def service_change(actions=None, desired_after=2, address=SERVICE):
     return {
         "address": address,
@@ -100,6 +113,49 @@ class CheckPlanTest(unittest.TestCase):
         tdc["change"]["after"]["container_definitions"] = json.dumps(after)
         errors, _ = check_plan(plan(tdc, service_change()), NEW)
         self.assertEqual(errors, [])
+
+    def test_aws_stored_representation_passes(self):
+        # PR #3 봇 에러 재현: state는 AWS가 저장한 표현("", {}, hostPort), plan의 after는 설정값(null)
+        for tags_before, tags_after in (({}, None), (None, {})):
+            with self.subTest(tags_before=tags_before, tags_after=tags_after):
+                changes = []
+                for td, svc in ((TASK_DEFINITION, SERVICE), (WORKER_TASK_DEFINITION, WORKER_SERVICE)):
+                    tdc = aws_stored_task_definition_change(td)
+                    tdc["change"]["before"]["tags"] = tags_before
+                    tdc["change"]["after"]["tags"] = tags_after
+                    changes += [tdc, service_change(address=svc)]
+                errors, changed = check_plan(plan(*changes), NEW)
+                self.assertEqual(errors, [])
+                self.assertEqual(len(changed), 4)
+
+    def test_host_port_different_from_container_port_fails(self):
+        tdc = aws_stored_task_definition_change()
+        after = json.loads(tdc["change"]["after"]["container_definitions"])
+        after[0]["portMappings"] = [{"containerPort": 8080, "hostPort": 9090, "protocol": "tcp"}]
+        tdc["change"]["after"]["container_definitions"] = json.dumps(after)
+        errors, _ = check_plan(plan(tdc, service_change()), NEW)
+        self.assertTrue(any("이미지 외 값" in e for e in errors))
+
+    def test_ipc_mode_set_to_real_value_fails(self):
+        tdc = aws_stored_task_definition_change()
+        tdc["change"]["after"]["ipc_mode"] = "host"
+        errors, _ = check_plan(plan(tdc, service_change()), NEW)
+        self.assertTrue(any("'ipc_mode'" in e for e in errors))
+        self.assertFalse(any("'pid_mode'" in e for e in errors))
+
+    def test_tags_real_change_fails(self):
+        cases = {
+            "added": ({}, {"Owner": "platform"}),
+            "added_from_null": (None, {"Owner": "platform"}),
+            "changed": ({"Owner": "platform"}, {"Owner": "data"}),
+        }
+        for name, (tags_before, tags_after) in cases.items():
+            with self.subTest(name):
+                tdc = aws_stored_task_definition_change()
+                tdc["change"]["before"]["tags"] = tags_before
+                tdc["change"]["after"]["tags"] = tags_after
+                errors, _ = check_plan(plan(tdc, service_change()), NEW)
+                self.assertTrue(any("'tags'" in e for e in errors))
 
     def test_other_resource_change_fails(self):
         db = {"address": "module.state_db.aws_db_instance.this", "mode": "managed",
