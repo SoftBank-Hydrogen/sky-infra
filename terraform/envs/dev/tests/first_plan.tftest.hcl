@@ -42,9 +42,10 @@ override_resource {
 }
 
 variables {
-  aws_account_id          = "123456789012"
-  infra_apply_policy_arns = []
-  platform_image_tag      = "0000000" # platform-image.auto.tfvars 값과 무관하게 돈다
+  github_builder_repository_id = "" # 등록 전 상태를 builder.auto.tfvars와 독립적으로 검증한다
+  aws_account_id               = "123456789012"
+  infra_apply_policy_arns      = []
+  platform_image_tag           = "0000000" # platform-image.auto.tfvars 값과 무관하게 돈다
 }
 
 run "first_plan" {

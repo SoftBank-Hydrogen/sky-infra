@@ -199,11 +199,62 @@ variable "github_builder_repository_id" {
 variable "builder_workflow" {
   description = "워커가 workflow_dispatch로 실행할 워크플로 파일 이름"
   type        = string
-  default     = "build.yaml"
+  default     = "build.yml"
 }
 
 variable "github_app_id" {
   description = "Sky GitHub App ID (비밀 아님). 개인 키는 Secrets Manager github-app-private-key"
   type        = string
   default     = ""
+}
+
+# 원격 빌드 전용 App. API의 소스 감시 App과 별도로 설정한다.
+variable "github_builder_app_id" {
+  description = "sky-builder dispatch GitHub App ID (비밀 아님)"
+  type        = string
+  default     = ""
+  validation {
+    condition     = var.github_builder_app_id == "" || can(regex("^[0-9]{1,20}$", var.github_builder_app_id))
+    error_message = "github_builder_app_id는 빈 값 또는 숫자 ID여야 한다."
+  }
+}
+
+variable "github_builder_installation_id" {
+  description = "sky-builder App의 조직 installation ID (Client ID 아님)"
+  type        = string
+  default     = ""
+  validation {
+    condition     = var.github_builder_installation_id == "" || can(regex("^[0-9]{1,20}$", var.github_builder_installation_id))
+    error_message = "github_builder_installation_id는 빈 값 또는 숫자 ID여야 한다."
+  }
+}
+
+variable "builder_ref" {
+  description = "고정된 workflow commit을 가리키는 builder ref"
+  type        = string
+  default     = "main"
+  validation {
+    condition     = can(regex("^[A-Za-z0-9_.-]+$", var.builder_ref))
+    error_message = "builder_ref는 현재 플랫폼이 지원하는 단일 ref 이름이어야 한다."
+  }
+}
+
+variable "builder_code_sha" {
+  description = "검토된 builder workflow의 전체 40자리 commit SHA"
+  type        = string
+  default     = ""
+  validation {
+    condition     = var.builder_code_sha == "" || can(regex("^[0-9a-f]{40}$", var.builder_code_sha))
+    error_message = "builder_code_sha는 빈 값 또는 40자리 소문자 SHA여야 한다."
+  }
+}
+
+variable "builder_platform_code_sha" {
+  description = "builder가 checkout하는 플랫폼 코드의 전체 40자리 SHA. builder repository variable과 같아야 한다"
+  type        = string
+  default     = ""
+  validation {
+    condition     = var.builder_platform_code_sha == "" || can(regex("^[0-9a-f]{40}$", var.builder_platform_code_sha))
+    error_message = "builder_platform_code_sha는 빈 값 또는 40자리 소문자 SHA여야 한다."
+  }
 }
