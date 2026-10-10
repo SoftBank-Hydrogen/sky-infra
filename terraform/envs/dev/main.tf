@@ -262,7 +262,7 @@ module "worker" {
   subnet_ids            = module.network.app_subnet_ids
   security_group_id     = module.network.worker_security_group_id
   min_count             = 0
-  max_count             = 0 # 꺼 둔다 (큐 오토스케일링 없음). 빌드 consumer(worker --mode build) 단계에서 var.worker_max_count로 다시 켠다
+  max_count             = var.worker_max_count
 
   queue_scaling = {
     queue_name   = module.queue.queue_name
