@@ -109,7 +109,7 @@ variable "api_command" {
 variable "worker_command" {
   description = "워커 컨테이너 명령. 이미지 ENTRYPOINT(sky-service) 뒤에 붙는 인자다"
   type        = list(string)
-  default     = ["worker", "--mode", "build"]
+  default     = ["worker", "--mode", "build", "--deploy-built-image"]
 }
 
 variable "api_cpu" {
