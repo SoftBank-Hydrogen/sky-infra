@@ -29,7 +29,7 @@ output "ecs_cluster_name" {
 }
 
 output "ecs_service_names" {
-  value = { api = module.api.service_name, worker = module.worker.service_name }
+  value = { api = module.api.service_name, worker = module.worker.service_name, outbox = module.outbox.service_name }
 }
 
 output "secret_arns" {
