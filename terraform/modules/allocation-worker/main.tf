@@ -172,7 +172,7 @@ module "service" {
   task_role_arn          = aws_iam_role.task.arn
   subnet_ids             = var.subnet_ids
   security_group_id      = var.security_group_id
-  min_count              = 1
+  min_count              = var.min_count
   max_count              = 1
   enable_execute_command = false
   stop_timeout_seconds   = 120

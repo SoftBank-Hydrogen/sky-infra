@@ -299,3 +299,20 @@ variable "allocation_worker_image_tag" {
   type        = string
   default     = ""
 }
+
+variable "allocation_worker_workspace" {
+  type    = string
+  default = "team"
+  validation {
+    condition     = can(regex("^[A-Za-z0-9_-]{1,64}$", var.allocation_worker_workspace))
+    error_message = "Allocation workspace must be a valid state namespace."
+  }
+}
+variable "allocation_worker_min_count" {
+  type    = number
+  default = 1
+  validation {
+    condition     = contains([0, 1], var.allocation_worker_min_count)
+    error_message = "Allocation worker desired count must be 0 (paused) or 1."
+  }
+}

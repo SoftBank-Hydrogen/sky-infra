@@ -11,3 +11,12 @@ variable "registration" { type = any }
 variable "environment" { type = map(string) }
 variable "state_secret_arn" { type = string }
 variable "identity_secrets" { type = map(string) }
+
+variable "min_count" {
+  type    = number
+  default = 1
+  validation {
+    condition     = contains([0, 1], var.min_count)
+    error_message = "Allocator can be paused or run as one task."
+  }
+}

@@ -378,7 +378,8 @@ module "allocation_worker" {
   queue_url               = module.shared_database_queue[0].queue_url
   queue_arn               = module.shared_database_queue[0].queue_arn
   registration            = module.workload_pool[0].registration
-  environment             = local.common_environment
+  environment             = merge(local.common_environment, { SKY_STATE_WORKSPACE = var.allocation_worker_workspace })
+  min_count               = var.allocation_worker_min_count
   state_secret_arn        = module.state_db.master_secret_arn
   identity_secrets = {
     SKY_ALB_TRUSTS_JSON  = module.secrets.secret_arns["alb-trusts"]
