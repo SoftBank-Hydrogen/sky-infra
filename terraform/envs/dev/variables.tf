@@ -101,7 +101,7 @@ variable "platform_image_tag" {
 }
 
 variable "api_command" {
-  description = "API 컨테이너 명령. 이미지 ENTRYPOINT(sky-service) 뒤에 붙는 인자다. preparation(업로드·미리보기·승인·접수)을 켠다. --origin은 서비스 URL과 같아야 하고, 켜기 전에 migrate로 admission/approval/preview 스키마를 적용해 둬야 한다"
+  description = "API 컨테이너 명령. 이미지 ENTRYPOINT(sky-service) 뒤에 붙는 인자다. V4의 ZIP 단일 요청 접수를 켠다. 준비·소스 검증·승인·접수는 API 내부 단계이며 화면의 추가 입력이 아니다. --origin은 서비스 URL과 같아야 하고, 켜기 전에 migrate로 admission/approval/preview 스키마를 적용해 둬야 한다"
   type        = list(string)
   default     = ["api", "--enable-preparation", "--origin", "https://cloudas.store"]
 }

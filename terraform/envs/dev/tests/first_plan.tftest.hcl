@@ -61,6 +61,11 @@ run "first_plan" {
   command = plan
 
   assert {
+    condition     = contains(var.api_command, "--enable-preparation") && contains(var.worker_command, "--deploy-built-image") && !contains(keys(local.service_secrets.api), "OPENAI_API_KEY") && contains(keys(local.service_secrets.worker), "OPENAI_API_KEY")
+    error_message = "Hosted deployment must enable submission and execution together while keeping the AI key in the worker."
+  }
+
+  assert {
     condition     = length(module.database_cutover_queue) == 0 && length(aws_iam_role_policy.database_cutover_publisher) == 0 && output.database_cutover_transport == null
     error_message = "Cutover transport and publisher must remain disabled by default."
   }
