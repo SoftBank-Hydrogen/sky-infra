@@ -52,6 +52,11 @@ run "first_plan" {
   command = plan
 
   assert {
+    condition     = length(module.database_cutover_queue) == 0 && length(aws_iam_role_policy.database_cutover_publisher) == 0 && output.database_cutover_transport == null
+    error_message = "Cutover transport and publisher must remain disabled by default."
+  }
+
+  assert {
     condition     = length(module.shared_database_queue) == 0
     error_message = "Shared workload queue must remain opt-in; existing environments gain no allocation queue by default."
   }
@@ -69,6 +74,50 @@ run "first_plan" {
   assert {
     condition     = !contains(keys(module.github_oidc.role_arns), "app-builder")
     error_message = "저장소 ID가 확인되지 않은 builder 역할은 만들면 안 된다."
+  }
+}
+
+run "cutover_requires_registered_preparation" {
+  command = plan
+  variables {
+    enable_database_cutover_queue = true
+  }
+  expect_failures = [var.enable_database_cutover_queue]
+}
+
+run "cutover_transport_separated" {
+  command = plan
+  override_resource {
+    target          = module.database_cutover_queue[0].aws_sqs_queue.jobs
+    override_during = plan
+    values = {
+      arn = "arn:aws:sqs:ap-northeast-2:123456789012:sky-dev-database-cutover-jobs.fifo"
+      id  = "https://sqs.ap-northeast-2.amazonaws.com/123456789012/sky-dev-database-cutover-jobs.fifo"
+    }
+  }
+  variables {
+    enable_shared_database_queue  = true
+    enable_shared_workload_pool   = true
+    enable_dedicated_preparation  = true
+    dedicated_target_instance_ids = ["sky-validation-dedicated"]
+    enable_database_cutover_queue = true
+  }
+  assert {
+    condition = (
+      module.database_cutover_queue[0].queue_name == "sky-dev-database-cutover-jobs.fifo" &&
+      module.database_cutover_queue[0].dlq_name == "sky-dev-database-cutover-jobs-dlq.fifo" &&
+      length(module.dedicated_worker) == 0 &&
+      !output.database_cutover_transport.admission_enabled &&
+      !output.database_cutover_transport.worker_enabled
+    )
+    error_message = "Cutover preparation must create isolated transport without activating execution."
+  }
+  assert {
+    condition = (
+      toset(data.aws_iam_policy_document.database_cutover_publisher[0].statement[0].actions) == toset(["sqs:SendMessage", "sqs:GetQueueAttributes"]) &&
+      data.aws_iam_policy_document.database_cutover_publisher[0].statement[0].resources == toset([module.database_cutover_queue[0].queue_arn])
+    )
+    error_message = "Publisher must not receive/delete jobs or acquire database control permissions."
   }
 }
 

@@ -35,6 +35,8 @@ infra_apply_policy_arns = [
 # Transport preparation only. Enable after the platform image includes the allocation queue router.
 # Does not start a DB allocation consumer or create a shared workload RDS.
 enable_shared_database_queue = false
+# Prepare isolated cutover FIFO/DLQ only; API admission and worker remain disabled.
+enable_database_cutover_queue = false
 
 # Creates a billable separate workload database. Requires the dedicated queue above.
 enable_shared_workload_pool = false

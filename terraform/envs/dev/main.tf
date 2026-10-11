@@ -326,6 +326,8 @@ module "outbox" {
     SKY_SHARED_DATABASE_QUEUE_URL = module.shared_database_queue[0].queue_url
     } : {}, var.enable_dedicated_worker ? {
     SKY_DEDICATED_DATABASE_QUEUE_URL = module.dedicated_preparation[0].queue_url
+    } : {}, var.enable_database_cutover_queue ? {
+    SKY_DATABASE_CUTOVER_QUEUE_URL = module.database_cutover_queue[0].queue_url
   } : {})
   log_group_name    = module.observability.log_group_names["outbox"]
   log_stream_prefix = "outbox"
