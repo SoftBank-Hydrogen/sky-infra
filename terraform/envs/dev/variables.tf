@@ -91,12 +91,12 @@ variable "enable_auth" {
 # ---------------------------------------------------------------------------
 
 variable "platform_image_tag" {
-  description = "서비스 서버 이미지 태그(sky-platform 커밋의 7자리 git SHA). platform-image.auto.tfvars에서만 바꾼다"
+  description = "서비스 서버 이미지 태그(sky-platform 커밋의 7자리 또는 전체 git SHA). platform-image.auto.tfvars에서만 바꾼다"
   type        = string
 
   validation {
-    condition     = can(regex("^[0-9a-f]{7}$", var.platform_image_tag))
-    error_message = "platform_image_tag는 7자리 소문자 git SHA여야 한다."
+    condition     = can(regex("^([0-9a-f]{7}|[0-9a-f]{40})$", var.platform_image_tag))
+    error_message = "platform_image_tag는 7자리 또는 전체 40자리 소문자 git SHA여야 한다."
   }
 }
 
@@ -256,5 +256,63 @@ variable "builder_platform_code_sha" {
   validation {
     condition     = var.builder_platform_code_sha == "" || can(regex("^[0-9a-f]{40}$", var.builder_platform_code_sha))
     error_message = "builder_platform_code_sha는 빈 값 또는 40자리 소문자 SHA여야 한다."
+  }
+}
+
+variable "enable_shared_database_queue" {
+  description = "Create the dedicated shared workload DB allocation queue; does not create RDS or start an allocation worker."
+  type        = bool
+  default     = false
+}
+
+variable "enable_shared_workload_pool" {
+  description = "Create a separate shared app RDS, KMS key and security groups. SQL registration and allocation worker are separate steps."
+  type        = bool
+  default     = false
+  validation {
+    condition     = !var.enable_shared_workload_pool || var.enable_shared_database_queue
+    error_message = "Shared workload pool requires the dedicated allocation queue to be enabled."
+  }
+}
+variable "shared_workload_instance_class" {
+  type    = string
+  default = "db.t4g.small"
+}
+variable "shared_workload_multi_az" {
+  type    = bool
+  default = false
+}
+
+variable "enable_allocation_worker" {
+  type    = bool
+  default = false
+  validation {
+    condition = !var.enable_allocation_worker || (
+      var.enable_shared_workload_pool && var.enable_shared_database_queue &&
+      can(regex("^[a-f0-9]{40}$", var.allocation_worker_image_tag))
+    )
+    error_message = "Allocation worker requires pool, dedicated queue, and an explicitly published full commit SHA image."
+  }
+}
+variable "allocation_worker_image_tag" {
+  description = "Published full SHA image with shared allocation consumer. Updated through normal infra apply, independently of API/build image CD."
+  type        = string
+  default     = ""
+}
+
+variable "allocation_worker_workspace" {
+  type    = string
+  default = "team"
+  validation {
+    condition     = can(regex("^[A-Za-z0-9_-]{1,64}$", var.allocation_worker_workspace))
+    error_message = "Allocation workspace must be a valid state namespace."
+  }
+}
+variable "allocation_worker_min_count" {
+  type    = number
+  default = 1
+  validation {
+    condition     = contains([0, 1], var.allocation_worker_min_count)
+    error_message = "Allocation worker desired count must be 0 (paused) or 1."
   }
 }

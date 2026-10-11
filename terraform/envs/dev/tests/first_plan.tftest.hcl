@@ -52,6 +52,16 @@ run "first_plan" {
   command = plan
 
   assert {
+    condition     = length(module.database_cutover_queue) == 0 && length(aws_iam_role_policy.database_cutover_publisher) == 0 && output.database_cutover_transport == null
+    error_message = "Cutover transport and publisher must remain disabled by default."
+  }
+
+  assert {
+    condition     = length(module.shared_database_queue) == 0
+    error_message = "Shared workload queue must remain opt-in; existing environments gain no allocation queue by default."
+  }
+
+  assert {
     condition     = module.api.service_name == "sky-dev-api" && module.worker.service_name == "sky-dev-worker"
     error_message = "서비스 이름이 deploy.yaml·검사 스크립트와 맞아야 한다."
   }
@@ -67,6 +77,50 @@ run "first_plan" {
   }
 }
 
+run "cutover_requires_registered_preparation" {
+  command = plan
+  variables {
+    enable_database_cutover_queue = true
+  }
+  expect_failures = [var.enable_database_cutover_queue]
+}
+
+run "cutover_transport_separated" {
+  command = plan
+  override_resource {
+    target          = module.database_cutover_queue[0].aws_sqs_queue.jobs
+    override_during = plan
+    values = {
+      arn = "arn:aws:sqs:ap-northeast-2:123456789012:sky-dev-database-cutover-jobs.fifo"
+      id  = "https://sqs.ap-northeast-2.amazonaws.com/123456789012/sky-dev-database-cutover-jobs.fifo"
+    }
+  }
+  variables {
+    enable_shared_database_queue  = true
+    enable_shared_workload_pool   = true
+    enable_dedicated_preparation  = true
+    dedicated_target_instance_ids = ["sky-validation-dedicated"]
+    enable_database_cutover_queue = true
+  }
+  assert {
+    condition = (
+      module.database_cutover_queue[0].queue_name == "sky-dev-database-cutover-jobs.fifo" &&
+      module.database_cutover_queue[0].dlq_name == "sky-dev-database-cutover-jobs-dlq.fifo" &&
+      length(module.dedicated_worker) == 0 &&
+      !output.database_cutover_transport.admission_enabled &&
+      !output.database_cutover_transport.worker_enabled
+    )
+    error_message = "Cutover preparation must create isolated transport without activating execution."
+  }
+  assert {
+    condition = (
+      toset(data.aws_iam_policy_document.database_cutover_publisher[0].statement[0].actions) == toset(["sqs:SendMessage", "sqs:GetQueueAttributes"]) &&
+      data.aws_iam_policy_document.database_cutover_publisher[0].statement[0].resources == toset([module.database_cutover_queue[0].queue_arn])
+    )
+    error_message = "Publisher must not receive/delete jobs or acquire database control permissions."
+  }
+}
+
 run "builder_repository_registered" {
   command = plan
   variables {
@@ -76,5 +130,137 @@ run "builder_repository_registered" {
   assert {
     condition     = local.builder_oidc_subject_prefix == "repo:SoftBank-Hydrogen@338183202/sky-builder@987654321" && contains(keys(module.github_oidc.role_arns), "app-builder")
     error_message = "builder 저장소 ID가 설정되면 해당 불변 주체의 역할을 만들어야 한다."
+  }
+}
+
+run "shared_database_queue_enabled" {
+  command = plan
+  variables {
+    enable_shared_database_queue = true
+  }
+
+  assert {
+    condition = (
+      length(module.shared_database_queue) == 1 &&
+      module.shared_database_queue[0].queue_name == "sky-dev-shared-database-jobs.fifo" &&
+      module.shared_database_queue[0].dlq_name == "sky-dev-shared-database-jobs-dlq.fifo" &&
+      module.shared_database_queue[0].queue_name != module.queue.queue_name
+    )
+    error_message = "Shared allocation queue and DLQ must be separate from build transport."
+  }
+
+  assert {
+    condition     = output.shared_database_queue.name == "sky-dev-shared-database-jobs.fifo"
+    error_message = "Runtime registration output must identify the dedicated queue."
+  }
+}
+
+run "shared_workload_pool_requires_queue" {
+  command = plan
+  variables {
+    enable_shared_workload_pool  = true
+    enable_shared_database_queue = false
+  }
+  expect_failures = [var.enable_shared_workload_pool]
+}
+
+run "shared_workload_pool_enabled" {
+  command = plan
+  variables {
+    enable_shared_database_queue = true
+    enable_shared_workload_pool  = true
+  }
+  assert {
+    condition     = length(module.workload_pool) == 1 && module.workload_pool[0].identifier != module.state_db.identifier
+    error_message = "App workloads must never be allocated in the Sky state RDS."
+  }
+}
+
+run "allocation_worker_requires_published_image" {
+  command = plan
+  variables {
+    enable_shared_database_queue = true
+    enable_shared_workload_pool  = true
+    enable_allocation_worker     = true
+    allocation_worker_image_tag  = ""
+  }
+  expect_failures = [var.enable_allocation_worker]
+}
+
+run "allocation_worker_enabled" {
+  command = plan
+  variables {
+    enable_shared_database_queue = true
+    enable_shared_workload_pool  = true
+    enable_allocation_worker     = true
+    allocation_worker_image_tag  = "1111111111111111111111111111111111111111"
+  }
+  assert {
+    condition     = length(module.allocation_worker) == 1 && module.allocation_worker[0].service_name == "sky-dev-allocation"
+    error_message = "Allocation must use a separate service instead of changing the existing build worker."
+  }
+}
+
+run "dedicated_preparation_default_disabled" {
+  command = plan
+  assert {
+    condition     = length(module.dedicated_preparation) == 0 && length(module.dedicated_worker) == 0 && length(aws_security_group.dedicated_database) == 0
+    error_message = "Dedicated resources and workers must remain opt-in."
+  }
+}
+run "dedicated_preparation_requires_registered_pool" {
+  command = plan
+  variables {
+    enable_dedicated_preparation  = true
+    dedicated_target_instance_ids = ["sky-validation-dedicated"]
+  }
+  expect_failures = [var.enable_dedicated_preparation]
+}
+run "dedicated_worker_requires_immutable_matching_image" {
+  command = plan
+  variables {
+    enable_shared_database_queue  = true
+    enable_shared_workload_pool   = true
+    enable_dedicated_preparation  = true
+    dedicated_target_instance_ids = ["sky-validation-dedicated"]
+    enable_dedicated_worker       = true
+    dedicated_worker_image_tag    = "1111111111111111111111111111111111111111"
+    dedicated_policies_json       = "{\"schema_version\":1,\"policies\":[]}"
+  }
+  expect_failures = [var.enable_dedicated_worker]
+}
+
+run "dedicated_resources_prepared_worker_paused" {
+  command = plan
+  variables {
+    enable_shared_database_queue  = true
+    enable_shared_workload_pool   = true
+    enable_dedicated_preparation  = true
+    dedicated_target_instance_ids = ["sky-validation-dedicated"]
+  }
+  assert {
+    condition     = length(module.dedicated_preparation) == 1 && length(module.dedicated_worker) == 0 && length(aws_iam_role_policy.dedicated_publisher) == 0
+    error_message = "Resource preparation must not activate a worker or change outbox permissions."
+  }
+  assert {
+    condition     = aws_db_parameter_group.dedicated[0].family == "postgres17" && length(aws_vpc_security_group_ingress_rule.dedicated_database) == 2
+    error_message = "Dedicated targets require TLS PostgreSQL configuration and scoped worker/runtime network access."
+  }
+}
+run "dedicated_worker_registered" {
+  command = plan
+  variables {
+    enable_shared_database_queue  = true
+    enable_shared_workload_pool   = true
+    enable_dedicated_preparation  = true
+    dedicated_target_instance_ids = ["sky-validation-dedicated"]
+    enable_dedicated_worker       = true
+    dedicated_worker_image_tag    = "1111111111111111111111111111111111111111"
+    platform_image_tag            = "1111111111111111111111111111111111111111"
+    dedicated_policies_json       = "{\"schema_version\":1,\"policies\":[]}"
+  }
+  assert {
+    condition     = module.dedicated_worker[0].service_name == "sky-dev-dedicated-preparation" && length(aws_iam_role_policy.dedicated_publisher) == 1
+    error_message = "Enabled worker must have a separate service and narrowly scoped publisher."
   }
 }

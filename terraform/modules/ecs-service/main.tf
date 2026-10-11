@@ -73,7 +73,7 @@ resource "aws_ecs_service" "this" {
   cluster                = var.cluster_arn
   task_definition        = aws_ecs_task_definition.this.arn
   desired_count          = var.min_count
-  enable_execute_command = true
+  enable_execute_command = var.enable_execute_command
   propagate_tags         = "SERVICE"
 
   deployment_minimum_healthy_percent = var.deployment_minimum_healthy_percent

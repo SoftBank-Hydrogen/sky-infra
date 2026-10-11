@@ -67,3 +67,9 @@ variable "state_key" {
   description = "이 환경 state 객체 키 (이미지 배포 역할 범위)"
   type        = string
 }
+
+variable "shared_database_queue_arns" {
+  description = "Dedicated shared DB allocation queues; publisher sends, worker consumes. No DLQ redrive permission."
+  type        = list(string)
+  default     = []
+}

@@ -160,7 +160,7 @@ data "aws_iam_policy_document" "api" {
   statement {
     sid       = "EnqueueJobs"
     actions   = ["sqs:SendMessage", "sqs:GetQueueAttributes"]
-    resources = [var.queue_arn]
+    resources = concat([var.queue_arn], var.shared_database_queue_arns)
   }
 }
 

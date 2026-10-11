@@ -295,7 +295,7 @@ data "aws_iam_policy_document" "worker_jobs" {
       "sqs:GetQueueAttributes",
       "sqs:SendMessage", # 후속 작업
     ]
-    resources = [var.queue_arn]
+    resources = concat([var.queue_arn], var.shared_database_queue_arns)
   }
   statement {
     sid = "TaskScaleInProtection"

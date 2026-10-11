@@ -124,6 +124,25 @@ module "queue" {
   name_prefix = local.name_prefix
 }
 
+# Shared allocations use a separate FIFO queue: build consumers never receive DB commands.
+module "shared_database_queue" {
+  count       = var.enable_shared_database_queue ? 1 : 0
+  source      = "../../modules/queue"
+  name_prefix = "${local.name_prefix}-shared-database"
+}
+
+# Dedicated workload DB; never use the Sky state database as an app pool.
+module "workload_pool" {
+  count                       = var.enable_shared_workload_pool ? 1 : 0
+  source                      = "../../modules/workload-pool"
+  name_prefix                 = local.name_prefix
+  vpc_id                      = module.network.vpc_id
+  data_subnet_ids             = module.network.data_subnet_ids
+  allocator_security_group_id = module.network.worker_security_group_id
+  instance_class              = var.shared_workload_instance_class
+  multi_az                    = var.shared_workload_multi_az
+}
+
 # ---------------------------------------------------------------------------
 # 이미지·비밀·권한
 # ---------------------------------------------------------------------------
@@ -145,17 +164,18 @@ module "iam" {
     worker = { secret_arns = values(local.service_secrets.worker) }
     outbox = { secret_arns = [] } # 앱 비밀 없음. DB 비밀은 태스크 역할(API)로 직접 읽는다
   }
-  log_group_names         = module.observability.log_group_names
-  exec_log_group_name     = module.observability.exec_log_group_name
-  platform_repository_arn = module.ecr.repository_arn
-  platform_secret_arns    = values(module.secrets.secret_arns)
-  state_db_secret_arn     = module.state_db.master_secret_arn
-  artifacts_bucket_arn    = module.artifacts.bucket_arn
-  queue_arn               = module.queue.queue_arn
-  cluster_name            = local.cluster_name
-  service_names           = local.service_names
-  state_bucket_name       = local.state_bucket_name
-  state_key               = local.state_key
+  log_group_names            = module.observability.log_group_names
+  exec_log_group_name        = module.observability.exec_log_group_name
+  platform_repository_arn    = module.ecr.repository_arn
+  platform_secret_arns       = values(module.secrets.secret_arns)
+  state_db_secret_arn        = module.state_db.master_secret_arn
+  artifacts_bucket_arn       = module.artifacts.bucket_arn
+  queue_arn                  = module.queue.queue_arn
+  shared_database_queue_arns = [for queue in module.shared_database_queue : queue.queue_arn]
+  cluster_name               = local.cluster_name
+  service_names              = local.service_names
+  state_bucket_name          = local.state_bucket_name
+  state_key                  = local.state_key
 }
 
 module "github_oidc" {
@@ -302,7 +322,13 @@ module "outbox" {
   min_count          = 1
   max_count          = 1
 
-  environment       = local.common_environment
+  environment = merge(local.common_environment, var.enable_shared_database_queue ? {
+    SKY_SHARED_DATABASE_QUEUE_URL = module.shared_database_queue[0].queue_url
+    } : {}, var.enable_dedicated_worker ? {
+    SKY_DEDICATED_DATABASE_QUEUE_URL = module.dedicated_preparation[0].queue_url
+    } : {}, var.enable_database_cutover_queue ? {
+    SKY_DATABASE_CUTOVER_QUEUE_URL = module.database_cutover_queue[0].queue_url
+  } : {})
   log_group_name    = module.observability.log_group_names["outbox"]
   log_stream_prefix = "outbox"
   depends_on_ids    = [module.cluster.capacity_providers_ready]
@@ -340,4 +366,28 @@ module "published_outputs" {
     }, var.github_builder_repository_id == "" ? {} : {
     "aws/app_builder_role_arn" = module.github_oidc.role_arns["app-builder"]
   })
+}
+
+# Separately pinned image: platform's API/build image-only CD does not update this service.
+module "allocation_worker" {
+  count                   = var.enable_allocation_worker ? 1 : 0
+  source                  = "../../modules/allocation-worker"
+  name_prefix             = local.name_prefix
+  cluster_arn             = module.cluster.cluster_arn
+  cluster_name            = local.cluster_name
+  image                   = "${module.ecr.repository_url}:${var.allocation_worker_image_tag}"
+  platform_repository_arn = module.ecr.repository_arn
+  subnet_ids              = module.network.app_subnet_ids
+  security_group_id       = module.network.worker_security_group_id
+  queue_url               = module.shared_database_queue[0].queue_url
+  queue_arn               = module.shared_database_queue[0].queue_arn
+  registration            = module.workload_pool[0].registration
+  environment             = merge(local.common_environment, { SKY_STATE_WORKSPACE = var.allocation_worker_workspace })
+  min_count               = var.allocation_worker_min_count
+  state_secret_arn        = module.state_db.master_secret_arn
+  identity_secrets = {
+    SKY_ALB_TRUSTS_JSON  = module.secrets.secret_arns["alb-trusts"]
+    SKY_MEMBERSHIPS_JSON = module.secrets.secret_arns["memberships"]
+  }
+  depends_on = [module.cluster]
 }

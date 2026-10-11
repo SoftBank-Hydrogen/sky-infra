@@ -31,3 +31,18 @@ infra_apply_policy_arns = [
 # github_app_id      = ""
 
 # platform_image_tag는 여기에 두지 않는다. 커밋되는 platform-image.auto.tfvars가 유일한 출처다.
+
+# Transport preparation only. Enable after the platform image includes the allocation queue router.
+# Does not start a DB allocation consumer or create a shared workload RDS.
+enable_shared_database_queue = false
+# Prepare isolated cutover FIFO/DLQ only; API admission and worker remain disabled.
+enable_database_cutover_queue = false
+
+# Creates a billable separate workload database. Requires the dedicated queue above.
+enable_shared_workload_pool = false
+shared_workload_instance_class = "db.t4g.small"
+shared_workload_multi_az = false
+
+# Starts only the allocation worker. Enable after SQL registration and publishing a compatible image.
+enable_allocation_worker = false
+allocation_worker_image_tag = ""
