@@ -260,7 +260,10 @@ module "api" {
   }
   cpu_target_percent = 60
 
-  environment       = local.common_environment
+  environment = merge(local.common_environment, {
+    # Availability is a deployment contract, not possession of an AI secret.
+    SKY_DEPLOYMENT_CONSUMER_ENABLED = tostring(contains(var.worker_command, "--deploy-built-image"))
+  })
   secrets           = local.service_secrets.api
   log_group_name    = module.observability.log_group_names["api"]
   log_stream_prefix = "api"
