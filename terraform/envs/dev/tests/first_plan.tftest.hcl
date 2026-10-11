@@ -42,10 +42,19 @@ override_resource {
 }
 
 variables {
-  github_builder_repository_id = "" # 등록 전 상태를 builder.auto.tfvars와 독립적으로 검증한다
-  aws_account_id               = "123456789012"
-  infra_apply_policy_arns      = []
-  platform_image_tag           = "0000000" # platform-image.auto.tfvars 값과 무관하게 돈다
+  # A checked-in live registration must not turn the empty-account fixture on.
+  enable_shared_database_queue  = false
+  enable_shared_workload_pool   = false
+  enable_allocation_worker      = false
+  enable_dedicated_preparation  = false
+  enable_dedicated_worker       = false
+  enable_database_cutover_queue = false
+  dedicated_target_instance_ids = []
+  allocation_worker_image_tag   = ""
+  github_builder_repository_id  = "" # 등록 전 상태를 builder.auto.tfvars와 독립적으로 검증한다
+  aws_account_id                = "123456789012"
+  infra_apply_policy_arns       = []
+  platform_image_tag            = "0000000" # platform-image.auto.tfvars 값과 무관하게 돈다
 }
 
 run "first_plan" {
