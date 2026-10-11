@@ -15,3 +15,27 @@ worker는 SQS 대기 메시지로 0~worker_max_count 확장하며 outbox는 계�
 - build_ready는 이미지 준비 완료이며 ECS 사용자 앱 배포 완료가 아니다.
 - DB/approval/admission schema가 준비되지 않으면 소비를 시작하지 못한다. runtime은 migration하지 않는다.
 - 태스크 보호와 worker 로그, DLQ 및 DB lease/중단 복구는 실환경에서 별도 확인한다.
+
+
+## Verified image deployment
+
+Platform PR #29 adds `--deploy-built-image`. Once its verified service image is deployed, enable this flag in the worker command. This connects new approved, environment-free HTTP apps from remote build to ECS Express creation and public HTTP verification. It does not migrate the state DB or automatically resume previously parked build_ready operations. Updates/rollback and WebSocket gameplay verification remain separate work.
+
+The platform reads existing sky-core outputs and uses the worker's existing managed-stack/ECS/PassRole permissions; no additional IAM grants are added. An uncertain create request remains needs_attention with its app lock retained. Never requeue such an AWS intent without reconciliation.
+
+
+## Read-only activation scope check
+
+Do not use a full apply while main and shared workload state differ. A read-only plan may target only:
+
+```
+terraform plan -input=false -lock=false \
+  -target=module.worker.aws_ecs_task_definition.this \
+  -target=module.worker.aws_ecs_service.this -out=worker.tfplan
+terraform show -json worker.tfplan > worker-plan.json
+python3 scripts/check_build_worker_plan.py worker-plan.json --expected-image <current-service-image>
+```
+
+The checker permits only the exact command transition from `worker --mode build` to `worker --mode build --deploy-built-image`, with the same image and all other task/service settings unchanged. DB, queue, IAM, API and outbox changes are rejected. Fault injection is explicitly disabled to keep the provider default from becoming unknown in a replacement plan.
+
+This is a preparation check, not approval to apply an old saved plan. Publish/deploy the platform PR #29 image first, regenerate the plan against fresh state and recheck it before any activation. Do not apply a plan generated with the old 9df3c59 image, which does not contain the new flag.
